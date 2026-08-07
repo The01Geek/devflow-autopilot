@@ -1,0 +1,520 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-07T01:34:24Z",
+  "fix_commit_sha": "pending",
+  "fix_files": [
+    "skills/review/SKILL.md",
+    "skills/review/phases/phase-4-4-github-post.md",
+    "skills/review-and-fix/references/loop-exit.md",
+    "skills/review-and-fix/references/error-handling.md",
+    ".changeset/issue-1367-run-completion-blueprint-row.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": [
+    "phase-2-implement.md"
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "POSTED review <event> literal exists in post-review-verdict.sh",
+      "file": "skills/review/phases/phase-4-4-github-post.md",
+      "verification_mode": "lite",
+      "claim_signature": "dependency_interaction:phase-4-4-github-post.md:posted-review-literal-exists",
+      "verdict": "PASS",
+      "evidence": "scripts/post-review-verdict.sh:358 _prv_say \"POSTED review $EVENT\""
+    },
+    {
+      "id": "VC-2",
+      "claim": "POSTED comment <event> literal exists",
+      "file": "skills/review/phases/phase-4-4-github-post.md",
+      "verification_mode": "lite",
+      "claim_signature": "dependency_interaction:phase-4-4-github-post.md:posted-comment-literal-exists",
+      "verdict": "PASS",
+      "evidence": "scripts/post-review-verdict.sh:378"
+    },
+    {
+      "id": "VC-3",
+      "claim": "FAILED no-durable-channel literal exists",
+      "file": "skills/review/phases/phase-4-4-github-post.md",
+      "verification_mode": "lite",
+      "claim_signature": "dependency_interaction:phase-4-4-github-post.md:failed-no-durable-channel-literal",
+      "verdict": "PASS",
+      "evidence": "scripts/post-review-verdict.sh:383"
+    },
+    {
+      "id": "VC-4",
+      "claim": "the four SKIP reasons are exactly the helper's SKIP set",
+      "file": "skills/review/phases/phase-4-4-github-post.md",
+      "verification_mode": "lite",
+      "claim_signature": "dependency_interaction:phase-4-4-github-post.md:skip-reason-set-complete",
+      "verdict": "PASS",
+      "evidence": "scripts/post-review-verdict.sh:236,249,260,268 — exactly four SKIP emits"
+    },
+    {
+      "id": "VC-6",
+      "claim": "the five pre-existing Blueprint rows are byte-unchanged",
+      "file": "skills/review/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:SKILL.md:blueprint-existing-rows-unchanged",
+      "verdict": "PASS",
+      "evidence": "git diff shows a pure single-line addition after 'Aggregate & verdict (Phase 4)'"
+    },
+    {
+      "id": "VC-7",
+      "claim": "the two lint-adjudications sentinel lines remain the last block",
+      "file": "skills/review/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:SKILL.md:sentinels-remain-last-block",
+      "verdict": "PASS",
+      "evidence": "nothing added below the sentinel pair inside the template fence"
+    },
+    {
+      "id": "VC-8",
+      "claim": "the Status flip point is unchanged",
+      "file": "skills/review/SKILL.md",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:SKILL.md:status-flip-point-unchanged",
+      "verdict": "PASS",
+      "evidence": "comment-analyzer confirmed the Phase 4 bullet still carries the flip and the diff does not move it"
+    },
+    {
+      "id": "VC-9",
+      "claim": "review-and-fix skips Phase 4.4 entirely and posts no verdict",
+      "file": "skills/review/SKILL.md",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:SKILL.md:fix-loop-skips-phase-4-4",
+      "verdict": "PASS",
+      "evidence": "confirmed at skills/review/SKILL.md:17, the routing table row, and skills/review-and-fix/SKILL.md"
+    },
+    {
+      "id": "VC-12",
+      "claim": "the four changed contract hashes match the four edited skills files",
+      "file": "scripts/devflow-cloud-writer-contract.json",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:devflow-cloud-writer-contract.json:four-hashes-match-edited-files",
+      "verdict": "PASS",
+      "evidence": "code-reviewer recomputed the full files map — zero mismatches"
+    },
+    {
+      "id": "VC-13",
+      "claim": "the assert_pin_unique on the terminal-x sentence still resolves uniquely",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "claim_signature": "test_mock_alignment:run.sh:no-verdict-pin-still-unique",
+      "verdict": "PASS",
+      "evidence": "grep -c 'Any path that reaches no verdict' skills/review/SKILL.md = 1"
+    },
+    {
+      "id": "VC-17",
+      "claim": "the changeset's 'previously read complete either way' claim",
+      "file": ".changeset/issue-1367-run-completion-blueprint-row.md",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:changeset:previously-read-complete-either-way",
+      "raw_verdict": "FAIL",
+      "verdict": "FAIL",
+      "evidence": "false for every pre-Phase-4 termination; fixed by scoping the claim to a run that reached the verdict-aggregation write"
+    },
+    {
+      "id": "VC-19",
+      "claim": "the row literal is byte-identical at every site",
+      "file": "skills/review-and-fix/references/error-handling.md",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:error-handling.md:row-literal-consistent-across-files",
+      "verdict": "PASS",
+      "evidence": "comment-analyzer confirmed the identical U+2014 em-dash form at all four sites"
+    },
+    {
+      "id": "VC-20",
+      "claim": "no pruned-path or internal-doc reference added under skills/",
+      "file": "skills/review/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:skills:no-pruned-or-internal-doc-paths-added",
+      "verdict": "PASS",
+      "evidence": "grep over the added lines: 0 docs/ hits, 0 new fenced blocks, 0 scripts/ paths"
+    }
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "the termination-time re-read gates its corrective attempt on the row's tick state, whose producer is a best-effort patch, so a successful delivery whose tick failed routes to a duplicate merge-blocking review post",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          236,
+          236
+        ],
+        "kind": "unverified_assumption"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "the corrective attempt's side effects are undecided — Phase 4.4's fallback arm and stale-REJECT dismissal would run a second time",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          236,
+          236
+        ],
+        "kind": "undecided_routing"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "the fix-loop tick has no precondition on why the loop terminated, so an abnormal stop-and-report could tick the row falsely",
+      "defect_signature": {
+        "file": "skills/review-and-fix/references/loop-exit.md",
+        "line_range": [
+          329,
+          332
+        ],
+        "kind": "missing_precondition"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "the changeset claims the checklist previously read complete either way; false for every pre-Phase-4 termination",
+      "defect_signature": {
+        "file": ".changeset/issue-1367-run-completion-blueprint-row.md",
+        "line_range": [
+          11,
+          11
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "the four SKIP readings are deterministically futile to retry",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          236,
+          236
+        ],
+        "kind": "futile_retry"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "'its final Blueprint row' is unscoped and can resolve to a quoted copy under Findings (live) on an engine self-review",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          236,
+          236
+        ],
+        "kind": "unscoped_read"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "the tick write's own failure after a successful corrective post is unrouted",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          236,
+          236
+        ],
+        "kind": "unrouted_outcome"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "'tick it last' is contradicted by Phase 4.5's write into the live comment after Phase 4.4",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          226,
+          226
+        ],
+        "kind": "doc_accuracy"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Phase 4.4's tick clauses carry no no-comment guard for an unset progress-comment handle in PR mode",
+      "defect_signature": {
+        "file": "skills/review/phases/phase-4-4-github-post.md",
+        "line_range": [
+          57,
+          61
+        ],
+        "kind": "missing_guard"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "error-handling.md's 'these steps' names a step set that does not contain the tick",
+      "defect_signature": {
+        "file": "skills/review-and-fix/references/error-handling.md",
+        "line_range": [
+          22,
+          22
+        ],
+        "kind": "doc_accuracy"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "the row label asserts more than its tick condition checks, since Phase 4.4's stale-REJECT dismissal runs after the post",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          202,
+          202
+        ],
+        "kind": "label_overclaim"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "two clauses read as reviewer pre-emption rather than instruction-plus-consequence",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          236,
+          237
+        ],
+        "kind": "prose_convention"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "pushed_back",
+      "source_file": "skills/review/SKILL.md",
+      "claim_text": "the row label asserts more than its tick condition checks",
+      "skip_category": "out-of-scope",
+      "evidence": "the driving issue's acceptance criteria require one row literal whose subject is completion of everything the run owed, serving both execution paths with no conditional template, and separately require that a ticked item assert a durable marked verdict and NOT a merge signal; the stale-REJECT dismissal is merge-gate housekeeping, which that second criterion explicitly places outside what the tick asserts",
+      "parking_evidence": {
+        "basis": "narrowing the row label would violate the issue's first acceptance criterion, and the merge-signal scoping the finding asks for is already carried by its fourth",
+        "failing_input": "the label reading 'everything this run owed' on a run whose stale-REJECT dismissal failed",
+        "source": ".prflow/tmp/issue-body/issue-1367.md acceptance criteria 1 and 4",
+        "finding_ref": {
+          "iter": 1,
+          "index": 10
+        }
+      }
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "pushed_back",
+      "source_file": "skills/review/SKILL.md",
+      "claim_text": "two clauses read as reviewer pre-emption rather than instruction-plus-consequence",
+      "skip_category": "out-of-scope",
+      "evidence": "both clauses are verbatim acceptance-criterion requirements — one criterion requires that on a run with no reader on the narrative channel the report be stated as reaching none, and another requires the fix-loop's per-iteration in-flight window be documented as an in-flight state rather than a delivery gap",
+      "parking_evidence": {
+        "basis": "removing either clause would drop an acceptance criterion the change is required to satisfy",
+        "failing_input": "the two closing sentences of the termination-time re-read and no-progress-comment bullets",
+        "source": ".prflow/tmp/issue-body/issue-1367.md acceptance criteria 10 and 12",
+        "finding_ref": {
+          "iter": 1,
+          "index": 11
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 10,
+    "fix_diff_lines": 14,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "not_verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 1
+    },
+    "phase_1": {
+      "calls": 1,
+      "tokens": 70924,
+      "wall_clock_s": 87
+    },
+    "phase_1_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 30
+    },
+    "phase_3": {
+      "calls": 3,
+      "tokens": 229663,
+      "wall_clock_s": 141
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2,
+      "webfetches": 0
+    },
+    "step_2_6": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2
+    }
+  },
+  "synthesized": false
+}
