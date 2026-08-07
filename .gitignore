@@ -42,6 +42,14 @@
 # Shipped per-language tool/preset registry read by scripts/detect-project-tools.sh
 # (/devflow:init). Must be tracked so the plugin ships it and a clean checkout works.
 !/.prflow/tool-presets.json
+# Committed declarative lint manifest (issue #1276) — the versioned, declarative
+# description of the bounded lint toolchain (exact ShellCheck/Ruff versions, per
+# platform artifact digests, selectors, exclusions, special-invocation IDs,
+# timeout bounds, full-profile IDs). Re-included past the /.prflow/* rule so the
+# plugin ships it and a clean checkout / ordinary `git add -A` keeps it tracked.
+# (The paired .prflow/install-state.json marker is added with the installer that
+# publishes it — see the follow-up issue.)
+!/.prflow/lint-manifest.json
 # DevFlow's own consumer prompt extensions (e.g. the dogfooded versioning rule in
 # implement.md). Tracked so a clean checkout — and CI — sees the re-homed policy.
 !/.prflow/prompt-extensions/

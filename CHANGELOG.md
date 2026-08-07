@@ -4,6 +4,42 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.28] — 2026-08-07
+
+### Changed
+Add the declarative lint manifest (`.prflow/lint-manifest.json`) and its strict
+reader/validator (`scripts/lint_manifest.py`) — the foundation of issue #1276's
+deterministic lint provisioning. The manifest is versioned and declarative
+(exact ShellCheck/Ruff versions, per-platform artifact digests, selectors,
+exclusions, closed special-invocation IDs, timeout bounds, full-profile IDs) and
+carries no executable behavior. The validator follows the six-shape reader
+matrix: every degraded input resolves to a typed `unestablished` result with a
+specific reason, never a plausible `N/A`, and declarative purity is enforced so
+shell strings, package-manager snippets, executable paths, URL templates, and
+environment expansion are all rejected. The committed manifest is re-included in
+`.gitignore` so it ships and stays tracked. (PR #1386)
+
+## [2.31.27] — 2026-08-07
+
+### Changed
+Editorially compress `### 2.3 Implement` in the `/prflow:implement` Phase 2 prompt surface. The
+section had accumulated rationale essays, rejected-design records and motivating-incident
+archaeology addressed to a human maintainer, inside a file whose only runtime reader is an agent
+that needs to know what to do — and whose bytes are re-read on every run and ship verbatim into a
+consumer's checkout.
+
+What came out, mostly: the war-story parentheticals behind the stub-blindness,
+enum-reconciliation, operand-trace, workflow-addendum and output-channel-honesty rules; the
+cross-sweep orientation recaps that restated what each sweep's own heading already states; and the
+restatement, inside the describing-prose sweep, of the search-ran rule its own preamble states and
+binds to it. One normative sentence also came out deliberately: the claim that this repository's
+former mutation-taking helpers are retired and its audited-source census must stay empty, which
+describes repository-internal machinery a consumer's checkout does not have — it is enforced there
+by a required suite gate and stated for contributors in `CONTRIBUTING.md`.
+
+The sweep set, their triggers, their termination conditions and their recorded evidence
+obligations are unchanged.
+
 ## [2.31.26] — 2026-08-07
 
 ### Fixed

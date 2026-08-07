@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -244,6 +245,57 @@ class TestBodyRejections(ImporterTestBase):
     def test_out_body_without_body_is_usage_error(self) -> None:
         rc = mod.main(["--handoff", self.handoff(VALID), "--out-body", str(self.dir / "x")])
         self.assertEqual(rc, 2)
+
+
+# The review-event <-> marker-verdict mapping is declared TWICE: here in the
+# importer's LEGAL_PAIRS (the trust-boundary validator) and in
+# scripts/post-review-verdict.sh's `case "$VERDICT"` arms (the delivery mapper).
+# Part 1's review (#1314) recorded that these two must not drift; #1319 wires the
+# emitter delivery mode, which makes a silent divergence a real hazard — the
+# importer would accept a (event, verdict) pair the poster never produces, or
+# reject one it does. Rather than route the security-critical importer through a
+# runtime file read, this reconciliation test asserts the two hand-maintained
+# declarations stay identical, so a change to one that is not mirrored in the
+# other turns the suite RED.
+_POST_VERDICT_PATH = _REPO_ROOT / "scripts" / "post-review-verdict.sh"
+
+# Match `EVENT=<X>; MARKER_VERDICT=<Y>` on a single case arm, tolerant of the
+# column-aligning whitespace the shell source uses between the assignments.
+_CASE_ARM_RE = re.compile(
+    r"EVENT=([A-Z_]+);\s*MARKER_VERDICT=([A-Z_]+)"
+)
+
+
+def _shell_legal_pairs() -> set:
+    text = _POST_VERDICT_PATH.read_text(encoding="utf-8")
+    return {(m.group(1), m.group(2)) for m in _CASE_ARM_RE.finditer(text)}
+
+
+class TestLegalPairReconciliation(unittest.TestCase):
+    """The importer's LEGAL_PAIRS and post-review-verdict.sh's case arms are two
+    hand-maintained copies of the same (review_event, marker_verdict) table; this
+    asserts they cannot silently diverge (#1319 design-note debt from #1314)."""
+
+    def test_shell_arms_match_importer_legal_pairs(self) -> None:
+        shell_pairs = _shell_legal_pairs()
+        # The shell must actually declare its arms — an empty parse would make the
+        # equality below pass vacuously if LEGAL_PAIRS were ever emptied too.
+        self.assertTrue(
+            shell_pairs,
+            "parsed no EVENT=/MARKER_VERDICT= arms from post-review-verdict.sh — "
+            "the case block moved or changed shape; update _CASE_ARM_RE",
+        )
+        self.assertEqual(
+            shell_pairs,
+            set(mod.LEGAL_PAIRS),
+            "the (review_event, marker_verdict) mapping drifted between "
+            "post-review-verdict.sh's case arms and the importer's LEGAL_PAIRS",
+        )
+
+    def test_shell_events_and_verdicts_are_in_importer_vocabularies(self) -> None:
+        for event, verdict in _shell_legal_pairs():
+            self.assertIn(event, mod.REVIEW_EVENTS)
+            self.assertIn(verdict, mod.MARKER_VERDICTS)
 
 
 if __name__ == "__main__":
