@@ -6,10 +6,15 @@
       "minimum_assertions": 104,
       "description": "Focused #1086 in-run parallel full-suite coordinator: the shard population derived from the dispatcher rather than copied, run-root selection with its TMPDIR fallback and its allocation refusals, the bounded process budget with its DEVFLOW_SUITE_PROCESS_BUDGET override and nested python-pool reservation, shard overlap at budget two and eight against a complete serial width one, the shard packing the reservation produces at the cloud runner's own budget of four, per-shard TMPDIR and tally isolation from stale sibling runs, HUP/INT/TERM handling with a signal parked in the launch window replayed rather than swallowed and the launched population reaped, the empty/malformed/launch-failed/crashed/missing-tally/malformed-tally/nonzero/skip-inconsistent failure contract, the real-population reentrancy refusal, the per-class detail cap driven directly against shard-tally.py (its uncapped default, the exactly-at-cap boundary, a negative cap, and that capping never changes the decision) as well as through the coordinator over complete retained logs, and the bare cloud leading token with its arity and unknown-argument guards, the --help contract, and a stand-in invocation-layer bash selector for the local boundary"
     },
+    "portability-lane": {
+      "path": "lib/test/modules/portability-lane.sh",
+      "minimum_assertions": 40,
+      "description": "Focused #1277 macOS Bash 3.2 portability lane: the shell-surface registry totality checker (every failure class — unclassified, missing-tracked, duplicate, unknown-state, stale-dependency, glob-leakage, schema — plus the live registry reconciled against the tracked tree), the shallow-safe classifier degraded-input matrix (failed read, unparseable body, superseded head, truncated pagination, conflicting statuses) and its risk-trigger arms, the process-group supervisor watchdog / interpreter precondition / not_applicable contract including the unestablished-empty mirror case, corpus completeness by construction, the aggregator gate conclusion-by-domain matrix, and the rendered-workflow boundary wiring"
+    },
     "phase2-durability-checkpoint": {
       "path": "lib/test/modules/phase2-durability-checkpoint.sh",
       "minimum_assertions": 78,
-      "description": "Focused #1139 Phase 2 mid-run durability contract: scripts/phase2-durability-checkpoint.sh driven against a scratch git repository with a real bare remote (git plumbing not mocked). The AC1 RED control (no checkpoint leaves the branch zero commits ahead of base with the produced content absent from the remote, as observable git state) and its AC2 GREEN counterpart; the per-invocation behavior (one commit per call each carrying only the work since the previous call, and no empty commit when nothing is new); the cloud-tier workflow-edit guard's detect-and-do-not-stage half over a tracked edit and an untracked addition under the repo's own .github/workflows/ with the non-workflow work still landing; the \u00a72.1.5 proof-edit exclusion by explicit scoping with no history rewrite; the AC6 explicit-path scoping (an unrelated untracked file not carried, and the stage-all tokens refused at the helper); the AC7 landing verification over a rejected non-fast-forward, a diverted-refspec Everything up-to-date push whose checkpoint commit leaves HEAD unequal to @{u}, the post-commit no-upstream arm, and the unchanged-path no-op no-upstream arm; the attributed git-add, git-commit, and outside-repository exit-4 arms; and AC8 idempotency (no empty commit on re-run and prior content seen exactly once)"
+      "description": "Focused #1139 Phase 2 mid-run durability contract: scripts/phase2-durability-checkpoint.sh driven against a scratch git repository with a real bare remote (git plumbing not mocked). The AC1 RED control (no checkpoint leaves the branch zero commits ahead of base with the produced content absent from the remote, as observable git state) and its AC2 GREEN counterpart; the per-invocation behavior (one commit per call each carrying only the work since the previous call, and no empty commit when nothing is new); the cloud-tier workflow-edit guard's detect-and-do-not-stage half over a tracked edit and an untracked addition under the repo's own .github/workflows/ with the non-workflow work still landing; the §2.1.5 proof-edit exclusion by explicit scoping with no history rewrite; the AC6 explicit-path scoping (an unrelated untracked file not carried, and the stage-all tokens refused at the helper); the AC7 landing verification over a rejected non-fast-forward, a diverted-refspec Everything up-to-date push whose checkpoint commit leaves HEAD unequal to @{u}, the post-commit no-upstream arm, and the unchanged-path no-op no-upstream arm; the attributed git-add, git-commit, and outside-repository exit-4 arms; and AC8 idempotency (no empty commit on re-run and prior content seen exactly once)"
     },
     "tier1-rename-migration": {
       "path": "lib/test/modules/tier1-rename-migration.sh",
@@ -65,19 +70,19 @@
       "path": "lib/test/modules/prompt-extension-reader.sh",
       "minimum_assertions": 156,
       "assertion_floor_policy": "exact",
-      "description": "Focused load-prompt-extension.sh consumer prompt-extension reader contract: the present/absent/empty extension arms, skill-name validation and the path-traversal refusal, unreadable/symlinked/locked fixture arms, the --section selector including its interaction with the pre-existing name guards, and the DEVFLOW_PROMPT_EXTENSION_ROOT trusted-root override \u2014 its presence-state matrix, its containment under the pre-existing name guards, and the branch-scoped stderr breadcrumb; plus the #1264 render-time injection wrapper scripts/render-prompt-extension.sh \u2014 its four input shapes (present-with-content, present-but-empty, absent, present-but-unreadable), the exact three-token status vocabulary, the neutralization of the loader's exit 2 on both its argument-validation and undeliverable families, the absent-trusted-closure arm that must not read as empty, the single-line collapse of the unestablished reason, and the unlocatable-sibling-loader arm \u2014 the one unestablished cause no loader exit status can report \u2014 with its positive control"
+      "description": "Focused load-prompt-extension.sh consumer prompt-extension reader contract: the present/absent/empty extension arms, skill-name validation and the path-traversal refusal, unreadable/symlinked/locked fixture arms, the --section selector including its interaction with the pre-existing name guards, and the DEVFLOW_PROMPT_EXTENSION_ROOT trusted-root override — its presence-state matrix, its containment under the pre-existing name guards, and the branch-scoped stderr breadcrumb; plus the #1264 render-time injection wrapper scripts/render-prompt-extension.sh — its four input shapes (present-with-content, present-but-empty, absent, present-but-unreadable), the exact three-token status vocabulary, the neutralization of the loader's exit 2 on both its argument-validation and undeliverable families, the absent-trusted-closure arm that must not read as empty, the single-line collapse of the unestablished reason, and the unlocatable-sibling-loader arm — the one unestablished cause no loader exit status can report — with its positive control"
     },
     "review-trigger-helpers": {
       "path": "lib/test/modules/review-trigger-helpers.sh",
       "minimum_assertions": 827,
       "assertion_floor_policy": "exact",
-      "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh and derive-review-preconditions.sh (both RETAINED and still covered after issue #936 withheld the auto PR-triggered review tier; derive-review-preconditions.sh's workflow caller is gone but an installed consumer copy still resolves it, and derive-review-verdict.sh is reached again by devflow.yml's dead-run verdict-presence gate via dead-run-verdict-present.sh \u2014 issue #1172 \u2014 so the helpers ship and their sections stay live), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, review-progress marker ownership and dead-run diagnosis (#1054), the #1154 dead-run upsert (describe-dead-run-cause.sh driven per arm plus a reordering mutant that proves the arm ORDER is load-bearing, the flip-review-progress-failed.sh upsert end to end against a stubbed gh \u2014 flip, create, idempotent re-run, already-terminal, every read/patch/create failure arm, run scoping against a foreign run's comment, and the mutable-markdown adversarial shapes \u2014 and devflow.yml's own extracted step shell driven over its command screen, its four run-end modes and both degraded-helper arms), the #1172 dead-run verdict-presence gate (dead-run-verdict-present.sh driven per arm against a stubbed gh \u2014 the review channel, the both-channels progress-comment channel, the truly-absent case, an unresolvable HEAD sha, the engine-error caveat, and the missing-sibling degradation \u2014 plus devflow.yml's flip-gate wiring: a present verdict suppresses the flip, an absent verdict reaches it with this run's marker and no-verdict cause, and a missing presence helper degrades toward the banner), authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh, the #1236 PR-state guard on post-ci-review-trigger.sh (no review request posted on an already-merged or closed target, each no-post arm a distinct annotation), the ci.yml supersession-concurrency static check (check-ci-concurrency.py: workflow-level concurrency key present, PR-varying group, cancel-in-progress not true on a main push), and the #1174 out-of-job review_finalize backstop (describe-command-job-arm.sh driven per arm plus a reordering mutant that proves the arm ORDER is load-bearing, the finalizer's reuse of the idempotent flip proved by a twice-flip-single-banner assertion, and devflow.yml's own extracted finalizer step shell driven over the three-arm CAUSE ladder and its arm order, the TARGET_NUMBER derivation, the suppress-vs-write gate, the verdict-oracle argument order and each of the four degraded-helper arms)"
+      "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh and derive-review-preconditions.sh (both RETAINED and still covered after issue #936 withheld the auto PR-triggered review tier; derive-review-preconditions.sh's workflow caller is gone but an installed consumer copy still resolves it, and derive-review-verdict.sh is reached again by devflow.yml's dead-run verdict-presence gate via dead-run-verdict-present.sh — issue #1172 — so the helpers ship and their sections stay live), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, review-progress marker ownership and dead-run diagnosis (#1054), the #1154 dead-run upsert (describe-dead-run-cause.sh driven per arm plus a reordering mutant that proves the arm ORDER is load-bearing, the flip-review-progress-failed.sh upsert end to end against a stubbed gh — flip, create, idempotent re-run, already-terminal, every read/patch/create failure arm, run scoping against a foreign run's comment, and the mutable-markdown adversarial shapes — and devflow.yml's own extracted step shell driven over its command screen, its four run-end modes and both degraded-helper arms), the #1172 dead-run verdict-presence gate (dead-run-verdict-present.sh driven per arm against a stubbed gh — the review channel, the both-channels progress-comment channel, the truly-absent case, an unresolvable HEAD sha, the engine-error caveat, and the missing-sibling degradation — plus devflow.yml's flip-gate wiring: a present verdict suppresses the flip, an absent verdict reaches it with this run's marker and no-verdict cause, and a missing presence helper degrades toward the banner), authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh, the #1236 PR-state guard on post-ci-review-trigger.sh (no review request posted on an already-merged or closed target, each no-post arm a distinct annotation), the ci.yml supersession-concurrency static check (check-ci-concurrency.py: workflow-level concurrency key present, PR-varying group, cancel-in-progress not true on a main push), and the #1174 out-of-job review_finalize backstop (describe-command-job-arm.sh driven per arm plus a reordering mutant that proves the arm ORDER is load-bearing, the finalizer's reuse of the idempotent flip proved by a twice-flip-single-banner assertion, and devflow.yml's own extracted finalizer step shell driven over the three-arm CAUSE ladder and its arm order, the TARGET_NUMBER derivation, the suppress-vs-write gate, the verdict-oracle argument order and each of the four degraded-helper arms)"
     },
     "review-stall-backstop": {
       "path": "lib/test/modules/review-stall-backstop.sh",
       "minimum_assertions": 459,
       "assertion_floor_policy": "exact",
-      "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow.yml wiring and grounding-block coupling), the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers), the #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict reader (background-tasks-probe-verdict.py) including the #839 additive coverage (denial-side tool-name net, main() side-output arms and EXECUTION_FILE fallback, and the verdict mirror), and the #1156 Phase 4.4 verdict-emitter reach record (the run-scoped receipt post-review-verdict.sh writes on every outcome-emitting path and its isolation from that helper's stdout bytes, line ordering and exit code, check-verdict-post-reached.sh's closed REACHED/NOT-REACHED/UNESTABLISHED vocabulary driven over the full malformed-receipt matrix with two arm-order swaps and two planted-defect controls, describe-verdict-post-gap.sh's five arms with their own arm-order controls and its field validation, and the always() devflow.yml step read out of the parsed workflow), and the #1250 head-reviews classifier (classify-head-reviews.sh over its a\u2013j acceptance arms, plus the #1247 placement precedence in both directions, its arm order, the case-insensitive marker-head comparison and the paginated reviews query the classification rests on) wired into that reach record so the not-reached body stops asserting the reviews API was untouched when the granted gh api posted an unmarked review, and the #1261 empty-branch producer (scripts/record-empty-branch.sh) driven over its NO_COMMIT / HAS_COMMIT / UNESTABLISHED outcomes plus the best-effort write-failure and idempotency arms against a real bare-origin git fixture with a stubbed workpad writer, with the claude-job Stall backstop wiring (producer beside the pure stall-backstop-decide.sh, called only from the two flips, never on the resume path) read out of the parsed workflow"
+      "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow.yml wiring and grounding-block coupling), the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers), the #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict reader (background-tasks-probe-verdict.py) including the #839 additive coverage (denial-side tool-name net, main() side-output arms and EXECUTION_FILE fallback, and the verdict mirror), and the #1156 Phase 4.4 verdict-emitter reach record (the run-scoped receipt post-review-verdict.sh writes on every outcome-emitting path and its isolation from that helper's stdout bytes, line ordering and exit code, check-verdict-post-reached.sh's closed REACHED/NOT-REACHED/UNESTABLISHED vocabulary driven over the full malformed-receipt matrix with two arm-order swaps and two planted-defect controls, describe-verdict-post-gap.sh's five arms with their own arm-order controls and its field validation, and the always() devflow.yml step read out of the parsed workflow), and the #1250 head-reviews classifier (classify-head-reviews.sh over its a–j acceptance arms, plus the #1247 placement precedence in both directions, its arm order, the case-insensitive marker-head comparison and the paginated reviews query the classification rests on) wired into that reach record so the not-reached body stops asserting the reviews API was untouched when the granted gh api posted an unmarked review, and the #1261 empty-branch producer (scripts/record-empty-branch.sh) driven over its NO_COMMIT / HAS_COMMIT / UNESTABLISHED outcomes plus the best-effort write-failure and idempotency arms against a real bare-origin git fixture with a stubbed workpad writer, with the claude-job Stall backstop wiring (producer beside the pure stall-backstop-decide.sh, called only from the two flips, never on the resume path) read out of the parsed workflow"
     },
     "experiment-records": {
       "path": "lib/test/modules/experiment-records.sh",
@@ -96,267 +101,89 @@
       "minimum_assertions": 242,
       "assertion_floor_policy": "exact",
       "description": "Focused drivers for scripts/issue-audit-state.py, the create-issue Step 3.6 audit-lifecycle state owner: the restricted-PATH CLI round trip and its #889 quoted-draft-line findings, the #603 digest filter-mode rows and the stale pre-cutover event log, the query exit contract, re-init/force and foreign-nonce rows, the embed-arm emitter, creation binding, override attestation and preconditions, the next-action and user-round budgets, illegal transitions, shadow and convergence rounds, the iteration-3/4/5/6 hardening, variance and seam rows, the retry-arm deadlock matrix, the #562 draft-binding CLI rows and the #569 write-path cross-check"
-    },
-    "portability-lane": {
-      "path": "lib/test/modules/portability-lane.sh",
-      "minimum_assertions": 40,
-      "description": "Focused #1277 macOS Bash 3.2 portability lane: the shell-surface registry totality checker (every failure class plus the live registry), the shallow-safe classifier degraded-input matrix and its risk-trigger arms, the process-group supervisor watchdog / interpreter precondition / not_applicable contract, corpus completeness by construction, the aggregator gate conclusion-by-domain matrix, and the rendered-workflow boundary wiring"
     }
   },
   "workflows": {
     "implement": {
-      "user_commands": [
-        "/prflow:implement",
-        "/devflow:implement",
-        "/implement"
-      ],
-      "skill_aliases": [
-        "implement",
-        "prflow:implement",
-        "devflow:implement"
-      ],
+      "user_commands": ["/prflow:implement", "/devflow:implement", "/implement"],
+      "skill_aliases": ["implement", "prflow:implement", "devflow:implement"],
       "subject_kind": "issue",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
       "allowed_parents": [],
       "surfaces": [
-        {
-          "glob": "skills/implement/SKILL.md",
-          "load_class": "always",
-          "required": true
-        },
-        {
-          "glob": "skills/implement/phases/*.md",
-          "load_class": "phase",
-          "required": true
-        },
-        {
-          "glob": "skills/implement/references/*.md",
-          "load_class": "reference",
-          "required": false
-        },
-        {
-          "glob": "skills/review/SKILL.md",
-          "load_class": "nested",
-          "required": true
-        },
-        {
-          "glob": "skills/review/phases/*.md",
-          "load_class": "nested",
-          "required": true
-        },
-        {
-          "glob": "skills/review-and-fix/SKILL.md",
-          "load_class": "nested",
-          "required": true
-        },
-        {
-          "glob": "skills/review-and-fix/references/*.md",
-          "load_class": "reference",
-          "required": false
-        },
-        {
-          "glob": "skills/docs/SKILL.md",
-          "load_class": "nested",
-          "required": false
-        },
-        {
-          "glob": ".prflow/prompt-extensions/implement.md",
-          "load_class": "extension",
-          "required": false
-        },
-        {
-          "glob": ".prflow/prompt-extensions/review-and-fix.md",
-          "load_class": "extension",
-          "required": false
-        },
-        {
-          "glob": ".prflow/prompt-extensions/review.md",
-          "load_class": "extension",
-          "required": false
-        },
-        {
-          "glob": ".prflow/prompt-extensions/receiving-code-review.md",
-          "load_class": "extension",
-          "required": false
-        }
+        {"glob": "skills/implement/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/implement/phases/*.md", "load_class": "phase", "required": true},
+        {"glob": "skills/implement/references/*.md", "load_class": "reference", "required": false},
+        {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": "skills/review/phases/*.md", "load_class": "nested", "required": true},
+        {"glob": "skills/review-and-fix/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": "skills/review-and-fix/references/*.md", "load_class": "reference", "required": false},
+        {"glob": "skills/docs/SKILL.md", "load_class": "nested", "required": false},
+        {"glob": ".prflow/prompt-extensions/implement.md", "load_class": "extension", "required": false},
+        {"glob": ".prflow/prompt-extensions/review-and-fix.md", "load_class": "extension", "required": false},
+        {"glob": ".prflow/prompt-extensions/review.md", "load_class": "extension", "required": false},
+        {"glob": ".prflow/prompt-extensions/receiving-code-review.md", "load_class": "extension", "required": false}
       ]
     },
     "create-issue": {
-      "user_commands": [
-        "/prflow:create-issue",
-        "/devflow:create-issue",
-        "/create-issue"
-      ],
-      "skill_aliases": [
-        "create-issue",
-        "prflow:create-issue",
-        "devflow:create-issue"
-      ],
+      "user_commands": ["/prflow:create-issue", "/devflow:create-issue", "/create-issue"],
+      "skill_aliases": ["create-issue", "prflow:create-issue", "devflow:create-issue"],
       "subject_kind": "topic",
       "argument_pattern": null,
-      "allowed_parents": [
-        "implement"
-      ],
+      "allowed_parents": ["implement"],
       "surfaces": [
-        {
-          "glob": "skills/create-issue/SKILL.md",
-          "load_class": "always",
-          "required": true
-        },
-        {
-          "glob": "skills/create-issue/references/*.md",
-          "load_class": "reference",
-          "required": false
-        },
-        {
-          "glob": ".prflow/prompt-extensions/create-issue.md",
-          "load_class": "extension",
-          "required": false
-        }
+        {"glob": "skills/create-issue/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/create-issue/references/*.md", "load_class": "reference", "required": false},
+        {"glob": ".prflow/prompt-extensions/create-issue.md", "load_class": "extension", "required": false}
       ]
     },
     "receiving-code-review": {
-      "user_commands": [
-        "/prflow:receiving-code-review",
-        "/devflow:receiving-code-review"
-      ],
-      "skill_aliases": [
-        "receiving-code-review",
-        "prflow:receiving-code-review",
-        "devflow:receiving-code-review"
-      ],
+      "user_commands": ["/prflow:receiving-code-review", "/devflow:receiving-code-review"],
+      "skill_aliases": ["receiving-code-review", "prflow:receiving-code-review", "devflow:receiving-code-review"],
       "subject_kind": "pull_request",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
-      "allowed_parents": [
-        "review-and-fix",
-        "implement"
-      ],
+      "allowed_parents": ["review-and-fix", "implement"],
       "surfaces": [
-        {
-          "glob": "skills/receiving-code-review/SKILL.md",
-          "load_class": "always",
-          "required": true
-        },
-        {
-          "glob": ".prflow/prompt-extensions/receiving-code-review.md",
-          "load_class": "extension",
-          "required": false
-        }
+        {"glob": "skills/receiving-code-review/SKILL.md", "load_class": "always", "required": true},
+        {"glob": ".prflow/prompt-extensions/receiving-code-review.md", "load_class": "extension", "required": false}
       ]
     },
     "review-and-fix": {
-      "user_commands": [
-        "/prflow:review-and-fix",
-        "/devflow:review-and-fix",
-        "/review-and-fix"
-      ],
-      "skill_aliases": [
-        "review-and-fix",
-        "prflow:review-and-fix",
-        "devflow:review-and-fix"
-      ],
+      "user_commands": ["/prflow:review-and-fix", "/devflow:review-and-fix", "/review-and-fix"],
+      "skill_aliases": ["review-and-fix", "prflow:review-and-fix", "devflow:review-and-fix"],
       "subject_kind": "pull_request",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
-      "allowed_parents": [
-        "implement"
-      ],
+      "allowed_parents": ["implement"],
       "surfaces": [
-        {
-          "glob": "skills/review-and-fix/SKILL.md",
-          "load_class": "always",
-          "required": true
-        },
-        {
-          "glob": "skills/review-and-fix/references/*.md",
-          "load_class": "reference",
-          "required": false
-        },
-        {
-          "glob": "skills/review/SKILL.md",
-          "load_class": "nested",
-          "required": true
-        },
-        {
-          "glob": "skills/review/phases/*.md",
-          "load_class": "nested",
-          "required": true
-        },
-        {
-          "glob": "skills/receiving-code-review/SKILL.md",
-          "load_class": "nested",
-          "required": true
-        },
-        {
-          "glob": ".prflow/prompt-extensions/review-and-fix.md",
-          "load_class": "extension",
-          "required": false
-        },
-        {
-          "glob": ".prflow/prompt-extensions/review.md",
-          "load_class": "extension",
-          "required": false
-        },
-        {
-          "glob": ".prflow/prompt-extensions/receiving-code-review.md",
-          "load_class": "extension",
-          "required": false
-        }
+        {"glob": "skills/review-and-fix/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/review-and-fix/references/*.md", "load_class": "reference", "required": false},
+        {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": "skills/review/phases/*.md", "load_class": "nested", "required": true},
+        {"glob": "skills/receiving-code-review/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": ".prflow/prompt-extensions/review-and-fix.md", "load_class": "extension", "required": false},
+        {"glob": ".prflow/prompt-extensions/review.md", "load_class": "extension", "required": false},
+        {"glob": ".prflow/prompt-extensions/receiving-code-review.md", "load_class": "extension", "required": false}
       ]
     },
     "review": {
-      "user_commands": [
-        "/prflow:review",
-        "/devflow:review",
-        "/review"
-      ],
-      "skill_aliases": [
-        "review",
-        "prflow:review",
-        "devflow:review"
-      ],
+      "user_commands": ["/prflow:review", "/devflow:review", "/review"],
+      "skill_aliases": ["review", "prflow:review", "devflow:review"],
       "subject_kind": "pull_request",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
-      "allowed_parents": [
-        "implement"
-      ],
+      "allowed_parents": ["implement"],
       "surfaces": [
-        {
-          "glob": "skills/review/SKILL.md",
-          "load_class": "always",
-          "required": true
-        },
-        {
-          "glob": "skills/review/phases/*.md",
-          "load_class": "phase",
-          "required": true
-        },
-        {
-          "glob": ".prflow/prompt-extensions/review.md",
-          "load_class": "extension",
-          "required": false
-        }
+        {"glob": "skills/review/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/review/phases/*.md", "load_class": "phase", "required": true},
+        {"glob": ".prflow/prompt-extensions/review.md", "load_class": "extension", "required": false}
       ]
     }
   },
   "cloud_mappings": {
     "schema_version": 1,
-    "comment": "Trusted cloud workflow/job -> DevFlow consumer mapping, read ONLY by the verification-launch baseline analyzer's cloud census eligibility (issue #527). load_registry ignores this additive section, so the top-level schema_version stays 1 and the recorder is unaffected. A census job is eligible only when its (workflow_file, job) matches an entry below AND the census records scheduled/started agent-step evidence (a skipped job, which never ran its agent step, is ineligible); any job whose (workflow_file, job) is not listed below is ineligible by omission. DELIBERATE OMISSION, recorded so an omission-by-oversight is distinguishable from an omission-by-intent (PR #531 review, completeness-critic): .github/workflows/matcher-probe.yml also runs claude-code-action (in its probe / implement-probe / schedulewakeup-probe / execfile-shape-probe / hook-probe jobs) and is deliberately absent \u2014 it is repo-internal permission-probe infrastructure, is not shipped by install.sh, and runs no DevFlow consumer lifecycle, so its runs are not verification-launch subjects. DELIBERATE REMOVAL (issue #936): .github/workflows/devflow-review.yml carried an entry here for its 'review / run' agent job. That workflow \u2014 the automatic pull-request-triggered review tier's caller \u2014 is withheld from this release and removed from the tree, so the entry was removed with it as a deliberate change to this census, not a silent deletion; a future reconstruction of that tier re-adds it. matcher-probe.yml is the only OTHER claude-code-action workflow excluded on purpose (repo-internal, never shipped); an agent job appearing in .github/workflows/ that is neither listed below nor named here is an oversight, not a carve-out. agent_step is the step ID (the `Run Claude Code` step's `id: claude`) that runs the claude-code-action agent in each listed workflow (informational only; census eligibility keys on job-level scheduled/started status, not the step name, because the census snapshot is job-level). Job values are the Actions jobs-API NAMES: a job that calls a reusable workflow surfaces its nested jobs as 'caller-job / called-job' so a caller's agent job reports as 'caller-job / called-job'; devflow-runner.yml is workflow_call-only \u2014 it never appears as its own workflow run, and since issue #936 removed its sole caller it has no reachable entry point at all, so it carries no entry here (PR #531 review). WAVE-1 CONSUMER APPROXIMATION: devflow.yml's 'command' job multiplexes /devflow:review, /devflow:review-and-fix, and /devflow:pr-description; because the census snapshot is job-level, all of its runs are attributed to consumer='review'/routed_command='/devflow:review' as a Wave-1 approximation \u2014 downstream stratification must not treat this consumer attribution as exact for the command job (PR #531 review).",
+    "comment": "Trusted cloud workflow/job -> DevFlow consumer mapping, read ONLY by the verification-launch baseline analyzer's cloud census eligibility (issue #527). load_registry ignores this additive section, so the top-level schema_version stays 1 and the recorder is unaffected. A census job is eligible only when its (workflow_file, job) matches an entry below AND the census records scheduled/started agent-step evidence (a skipped job, which never ran its agent step, is ineligible); any job whose (workflow_file, job) is not listed below is ineligible by omission. DELIBERATE OMISSION, recorded so an omission-by-oversight is distinguishable from an omission-by-intent (PR #531 review, completeness-critic): .github/workflows/matcher-probe.yml also runs claude-code-action (in its probe / implement-probe / schedulewakeup-probe / execfile-shape-probe / hook-probe jobs) and is deliberately absent — it is repo-internal permission-probe infrastructure, is not shipped by install.sh, and runs no DevFlow consumer lifecycle, so its runs are not verification-launch subjects. DELIBERATE REMOVAL (issue #936): .github/workflows/devflow-review.yml carried an entry here for its 'review / run' agent job. That workflow — the automatic pull-request-triggered review tier's caller — is withheld from this release and removed from the tree, so the entry was removed with it as a deliberate change to this census, not a silent deletion; a future reconstruction of that tier re-adds it. matcher-probe.yml is the only OTHER claude-code-action workflow excluded on purpose (repo-internal, never shipped); an agent job appearing in .github/workflows/ that is neither listed below nor named here is an oversight, not a carve-out. agent_step is the step ID (the `Run Claude Code` step's `id: claude`) that runs the claude-code-action agent in each listed workflow (informational only; census eligibility keys on job-level scheduled/started status, not the step name, because the census snapshot is job-level). Job values are the Actions jobs-API NAMES: a job that calls a reusable workflow surfaces its nested jobs as 'caller-job / called-job' so a caller's agent job reports as 'caller-job / called-job'; devflow-runner.yml is workflow_call-only — it never appears as its own workflow run, and since issue #936 removed its sole caller it has no reachable entry point at all, so it carries no entry here (PR #531 review). WAVE-1 CONSUMER APPROXIMATION: devflow.yml's 'command' job multiplexes /devflow:review, /devflow:review-and-fix, and /devflow:pr-description; because the census snapshot is job-level, all of its runs are attributed to consumer='review'/routed_command='/devflow:review' as a Wave-1 approximation — downstream stratification must not treat this consumer attribution as exact for the command job (PR #531 review).",
     "agent_jobs": [
-      {
-        "workflow_file": ".github/workflows/devflow-implement.yml",
-        "job": "claude",
-        "agent_step": "claude",
-        "consumer": "implement",
-        "routed_command": "/devflow:implement"
-      },
-      {
-        "workflow_file": ".github/workflows/devflow.yml",
-        "job": "command",
-        "agent_step": "claude",
-        "consumer": "review",
-        "routed_command": "/devflow:review",
-        "consumer_approximate": true
-      }
+      {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude", "agent_step": "claude", "consumer": "implement", "routed_command": "/devflow:implement"},
+      {"workflow_file": ".github/workflows/devflow.yml", "job": "command", "agent_step": "claude", "consumer": "review", "routed_command": "/devflow:review", "consumer_approximate": true}
     ]
   }
 }

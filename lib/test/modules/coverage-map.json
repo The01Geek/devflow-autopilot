@@ -250,7 +250,7 @@
       "owner": "harness-python-guards"
     },
     "scripts/classify-head-reviews.sh": {
-      "note": "#1250 closed-vocabulary classifier for the reviews recorded on the reviewed head (none | marked | unmarked <id>\u2026 | unestablished <reason>); driven per arm (a\u2013j) by the review-stall-backstop module's #1250 block, and wired into the reach-record step so describe-verdict-post-gap.sh stops asserting the reviews API was untouched when the granted gh api posted an unmarked review. Placement follows the #1247 precedence (verdict-marker head= authoritative, reviews-API commit_id a non-authoritative fallback), so a markerless own review the helper cannot place off the head grades review-placement-unprovable rather than none.",
+      "note": "#1250 closed-vocabulary classifier for the reviews recorded on the reviewed head (none | marked | unmarked <id>… | unestablished <reason>); driven per arm (a–j) by the review-stall-backstop module's #1250 block, and wired into the reach-record step so describe-verdict-post-gap.sh stops asserting the reviews API was untouched when the granted gh api posted an unmarked review. Placement follows the #1247 precedence (verdict-marker head= authoritative, reviews-API commit_id a non-authoritative fallback), so a markerless own review the helper cannot place off the head grades review-placement-unprovable rather than none.",
       "owner": "review-stall-backstop"
     },
     "scripts/classify-id-exit.sh": {
@@ -315,7 +315,7 @@
       "owner": "review-trigger-helpers"
     },
     "scripts/describe-command-job-arm.sh": {
-      "note": "issue #1174: the out-of-job review_finalize backstop's command-job arm selector (completed-normally / cancelled / did-not-report from needs.command.result); every arm and the arm ORDER are driven in the #1174 section of lib/test/modules/review-trigger-helpers.sh \u2014 a distinct decision from describe-dead-run-cause.sh, which it must not duplicate",
+      "note": "issue #1174: the out-of-job review_finalize backstop's command-job arm selector (completed-normally / cancelled / did-not-report from needs.command.result); every arm and the arm ORDER are driven in the #1174 section of lib/test/modules/review-trigger-helpers.sh — a distinct decision from describe-dead-run-cause.sh, which it must not duplicate",
       "owner": "review-trigger-helpers"
     },
     "scripts/describe-dead-run-cause.sh": {
@@ -522,7 +522,7 @@
       "owner": "phase2-durability-checkpoint"
     },
     "scripts/placeholder-probe-verdict.py": {
-      "note": "issue #1264 render-time placeholder precondition probe verdict helper (SUBSTITUTED_ENV_VISIBLE/SUBSTITUTED_ENV_UNSET/NOT_SUBSTITUTED/INCONCLUSIVE). Pure function over a parsed execution file \u2014 asserted inline from lib/test/run.sh (the #1264 block), matching the agents-seam/background-tasks/env-propagation/subagent-write probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module. The block drives every verdict arm plus two discrimination guards (template-form marker, incidental placeholder-head mention) and a coupling assertion binding the helper's constants to the matcher-probe.yml job and the probe skill body \u2014 including that --allowed-tools DOES grant the placeholder's own head, read from the skill body rather than restated, so the grant cannot drift from the command it covers. That assertion is inverted from its original form because limb (c) has since been answered NEGATIVE (run 31058504896 refused the placeholder with `This command requires approval`); with (c) settled, the grant is what makes limbs (a) and (b) reachable at all.",
+      "note": "issue #1264 render-time placeholder precondition probe verdict helper (SUBSTITUTED_ENV_VISIBLE/SUBSTITUTED_ENV_UNSET/NOT_SUBSTITUTED/INCONCLUSIVE). Pure function over a parsed execution file — asserted inline from lib/test/run.sh (the #1264 block), matching the agents-seam/background-tasks/env-propagation/subagent-write probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module. The block drives every verdict arm plus two discrimination guards (template-form marker, incidental placeholder-head mention) and a coupling assertion binding the helper's constants to the matcher-probe.yml job and the probe skill body — including that --allowed-tools DOES grant the placeholder's own head, read from the skill body rather than restated, so the grant cannot drift from the command it covers. That assertion is inverted from its original form because limb (c) has since been answered NEGATIVE (run 31058504896 refused the placeholder with `This command requires approval`); with (c) settled, the grant is what makes limbs (a) and (b) reachable at all.",
       "owner": "unmodularized"
     },
     "scripts/post-ci-review-trigger.sh": {
@@ -718,7 +718,7 @@
       "owner": "unmodularized"
     },
     "scripts/subagent-write-probe-verdict.py": {
-      "note": "issue #858 subagent-Write probe verdict helper (PERMITTED/DENIED/unestablished). Pure function over a parsed execution file \u2014 asserted inline from lib/test/run.sh (the #858 block), matching the agents-seam/background-tasks/env-propagation probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module.",
+      "note": "issue #858 subagent-Write probe verdict helper (PERMITTED/DENIED/unestablished). Pure function over a parsed execution file — asserted inline from lib/test/run.sh (the #858 block), matching the agents-seam/background-tasks/env-propagation probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module.",
       "owner": "unmodularized"
     },
     "scripts/summarize-ci-checks.sh": {
@@ -769,13 +769,14 @@
       "owner": "unmodularized"
     }
   },
-  "generated_by": "lib/test/coverage_map_guard.py \u2014 its shared label derivation (derive_labels) owns the run_sh_blocks half: arm 9 derives the label set from lib/test/run.sh and every lib/test/modules/*.sh at assertion-name position, fails the suite RED on a run.sh label with no entry and on a fully-extracted label misattributed to 'unmodularized', and `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair.",
+  "generated_by": "lib/test/coverage_map_guard.py — its shared label derivation (derive_labels) owns the run_sh_blocks half: arm 9 derives the label set from lib/test/run.sh and every lib/test/modules/*.sh at assertion-name position, fails the suite RED on a run.sh label with no entry and on a fully-extracted label misattributed to 'unmodularized', and `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair.",
   "non_code_exempt": [
     "lib/capability-profiles.json",
     "lib/intervention-surfaces.md",
     "lib/plugin-identity.json",
     "lib/rename-map.json",
     "lib/review-profile.tokens",
+    "lib/shell-surface-registry.json",
     "lib/subagent-dispatch-sites.json",
     "lib/writing-standard.md",
     "scripts/devflow-cloud-writer-contract.json",
@@ -967,7 +968,7 @@
       "owner": "review-trigger-helpers"
     },
     "1174": {
-      "note": "issue #1174: the out-of-job review_finalize backstop in devflow.yml; its command-job arm selector (scripts/describe-command-job-arm.sh) is driven arm-by-arm and for arm ORDER, and its step body is extracted between its `review-finalizer BEGIN`/`END` markers and EXECUTED against recording helper stubs \u2014 the CAUSE ladder, the TARGET_NUMBER derivation, the suppress-vs-write gate, the verdict-oracle arg order and each degraded-helper arm \u2014 in the #1174 sections of lib/test/modules/review-trigger-helpers.sh",
+      "note": "issue #1174: the out-of-job review_finalize backstop in devflow.yml; its command-job arm selector (scripts/describe-command-job-arm.sh) is driven arm-by-arm and for arm ORDER, and its step body is extracted between its `review-finalizer BEGIN`/`END` markers and EXECUTED against recording helper stubs — the CAUSE ladder, the TARGET_NUMBER derivation, the suppress-vs-write gate, the verdict-oracle arg order and each degraded-helper arm — in the #1174 sections of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
     },
     "1175": {
@@ -1059,7 +1060,7 @@
       "owner": "review-stall-backstop"
     },
     "1264": {
-      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/placeholder-probe-verdict.py (the issue-1264 render-time placeholder precondition probe), unmodularized like its probe-verdict siblings. Driven: the three real measurements (SUBSTITUTED_ENV_VISIBLE / SUBSTITUTED_ENV_UNSET / NOT_SUBSTITUTED), all six degraded arms resolving INCONCLUSIVE (line-absent, no-marker, missing controls, records-nothing, unparseable, partially-corrupt, absent file), the build negative control, both routing lines a maintainer transcribes into the #1264 thread, and two discrimination guards \u2014 the marker in unexpanded template form must not count as a report, and an incidental mention of the placeholder head elsewhere must not forge NOT_SUBSTITUTED. Also driven: the coupling assertion binding the helper's constants to the matcher-probe.yml job env sentinel, the slash-command prompt shape, the probe skill body's markers, and \u2014 load-bearing \u2014 that the job's --allowed-tools DOES grant the placeholder's own head, read from the skill body so the grant cannot drift from the command it covers. That limb-(c) assertion is inverted from its original form: (c) was answered NEGATIVE by run 31058504896 (`This command requires approval`), and with it settled the grant is the precondition that makes limbs (a) and (b) observable at all. Genuinely undriven: main()'s output formatting beyond the VERDICT and ROUTES TO lines.",
+      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/placeholder-probe-verdict.py (the issue-1264 render-time placeholder precondition probe), unmodularized like its probe-verdict siblings. Driven: the three real measurements (SUBSTITUTED_ENV_VISIBLE / SUBSTITUTED_ENV_UNSET / NOT_SUBSTITUTED), all six degraded arms resolving INCONCLUSIVE (line-absent, no-marker, missing controls, records-nothing, unparseable, partially-corrupt, absent file), the build negative control, both routing lines a maintainer transcribes into the #1264 thread, and two discrimination guards — the marker in unexpanded template form must not count as a report, and an incidental mention of the placeholder head elsewhere must not forge NOT_SUBSTITUTED. Also driven: the coupling assertion binding the helper's constants to the matcher-probe.yml job env sentinel, the slash-command prompt shape, the probe skill body's markers, and — load-bearing — that the job's --allowed-tools DOES grant the placeholder's own head, read from the skill body so the grant cannot drift from the command it covers. That limb-(c) assertion is inverted from its original form: (c) was answered NEGATIVE by run 31058504896 (`This command requires approval`), and with it settled the grant is the precondition that makes limbs (a) and (b) observable at all. Genuinely undriven: main()'s output formatting beyond the VERDICT and ROUTES TO lines.",
       "owner": "unmodularized"
     },
     "1267": {
@@ -1069,6 +1070,10 @@
     "1271": {
       "note": "",
       "owner": "review-stall-backstop"
+    },
+    "1277": {
+      "note": "",
+      "owner": "portability-lane"
     },
     "1288": {
       "note": "",
@@ -2271,7 +2276,7 @@
       "owner": "unmodularized"
     },
     "858": {
-      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. The parse OSError arm and the GITHUB_STEP_SUMMARY append (both directions) ARE driven. Genuinely undriven: main()'s catch-all except-Exception fallback table, and the _VERDICTS closed-vocabulary fallback. The deep-nesting fixture asserts the degraded CONTRACT (exit 0, unestablished, a named cause) rather than which guard fired, because that is platform-dependent \u2014 so the RecursionError arm specifically is not pinned.",
+      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. The parse OSError arm and the GITHUB_STEP_SUMMARY append (both directions) ARE driven. Genuinely undriven: main()'s catch-all except-Exception fallback table, and the _VERDICTS closed-vocabulary fallback. The deep-nesting fixture asserts the degraded CONTRACT (exit 0, unestablished, a named cause) rather than which guard fired, because that is platform-dependent — so the RecursionError arm specifically is not pinned.",
       "owner": "unmodularized"
     },
     "869": {
@@ -2359,7 +2364,7 @@
       "owner": "unmodularized"
     },
     "959": {
-      "note": "The installer provenance fail-safe: an unestablished digest must never read as an absent file. Wholly owned by the installer-wiring module, which drives the real install.sh end-to-end over fixture consumer repositories \u2014 the python3-present-but-unrunnable upgrade, the digest-error-on-a-present-artifact arms, the negative control that reintroduces the collapse and clobbers, the absent-still-creates positive controls, the manifest shape matrix and the withheld-tier config-disabler arms.",
+      "note": "The installer provenance fail-safe: an unestablished digest must never read as an absent file. Wholly owned by the installer-wiring module, which drives the real install.sh end-to-end over fixture consumer repositories — the python3-present-but-unrunnable upgrade, the digest-error-on-a-present-artifact arms, the negative control that reintroduces the collapse and clobbers, the absent-still-creates positive controls, the manifest shape matrix and the withheld-tier config-disabler arms.",
       "owner": "installer-wiring"
     },
     "967": {
@@ -2371,7 +2376,7 @@
       "owner": "unmodularized"
     },
     "970": {
-      "note": "TWO unrelated blocks carry this label. (a) The conditional GitHub Release publication: the publish-release.sh --release minor-major matrix and the consolidator --emit-bump-to side channel, driven from the #953 block in lib/test/run.sh \u2014 that block's `#970` is a MISLABEL predating this row (issue 970 is the installer one below; the label was written after that issue already existed and is left as found rather than swept here). (b) The real issue #970 \u2014 the installer's preserved-artifact sidecar ignore rule \u2014 is Scenario 22 of the installer-wiring module, which drives a real git index over both sidecar shapes with a negative control. The label stays unmodularized because (a) keeps assertions in lib/test/run.sh",
+      "note": "TWO unrelated blocks carry this label. (a) The conditional GitHub Release publication: the publish-release.sh --release minor-major matrix and the consolidator --emit-bump-to side channel, driven from the #953 block in lib/test/run.sh — that block's `#970` is a MISLABEL predating this row (issue 970 is the installer one below; the label was written after that issue already existed and is left as found rather than swept here). (b) The real issue #970 — the installer's preserved-artifact sidecar ignore rule — is Scenario 22 of the installer-wiring module, which drives a real git index over both sidecar shapes with a negative control. The label stays unmodularized because (a) keeps assertions in lib/test/run.sh",
       "owner": "unmodularized"
     },
     "971": {
