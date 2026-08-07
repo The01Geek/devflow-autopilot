@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1377",
+  "generated_at": "2026-08-07T02:44:58Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.19",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 27.11236425000001,
+    "tokens": {
+      "input_tokens": 312,
+      "output_tokens": 90048,
+      "cache_read_input_tokens": 35626767,
+      "cache_creation_input_tokens": 305035,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 384,
+        "outputTokens": 118386,
+        "cacheReadInputTokens": 36995301,
+        "cacheCreationInputTokens": 721482,
+        "webSearchRequests": 0,
+        "costUSD": 27.11236425000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 177,
+    "duration_ms": 5641460
+  },
+  "permission_denials": {
+    "count": 17,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=$GITHUB_ACTIONS\"; echo \"RUN_ID=$GITHUB_RUN_ID ATTEMPT=$GITHUB_RUN_ATTEMPT\"; echo \"REPO=$GITHUB_REPOSITORY\"; echo \"branch=$(git branch --show-current)\"; git status --short; echo \"---PRs---\"; gh pr list --search \"1373 in:body\" --state open --json number,headRefName 2>&1",
+      "DEVFLOW_ROOT=\"$(git rev-parse --show-toplevel)\"\nmkdir -p \"$DEVFLOW_ROOT/.prflow/tmp/issue-body\"\ngh issue view 1373 --json body --jq '.body' > \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1373.md\"\necho \"bytes:\"; wc -c < \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1373.md\"\necho \"---branch suggestion---\"\nscripts/branch-for-issue.py 1373 --title \"Validate the repository's own pending changesets against the consolidator's parser\" 2>&1 || .prflow/vendor/prflow/scripts/branch-for-issue.py 1373 2>&1",
+      "mkdir -p .prflow/tmp/issue-body\ngh issue view 1373 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1373.md\nwc -c < .prflow/tmp/issue-body/issue-1373.md",
+      "D=$(mktemp -d)\nprintf -- '---\\n\"prflow\": patch\\n---\\n\\n- npm form (#1373)\\n' | tee \"$D/npm.md\" >/dev/null\nprintf -- '---\\nbump: patch\\ntype: Fixed\\n---\\n\\n- correct form (#1373)\\n' | tee \"$D/good.md\" >/dev/null\necho \"=== npm form (expect RED) ===\"\npython3 lib/test/check_pending_changesets.py \"$D/npm.md\"; echo \"exit: $?\"\necho \"=== correct form (expect green) ===\"\npython3 lib/test/check_pending_changesets.py \"$D/good.md\"; echo \"exit: $?\"\nrm -rf \"$D\"",
+      "python3 -m ruff check lib/test/check_pending_changesets.py 2>&1 | tail -20; echo \"exit: ${PIPESTATUS[0]}\"",
+      "python3 lib/test/pin-corpus-lint.py mutation-routing-worktree \"$(pwd)\" 2>&1 | head -40; echo \"rc: ${PIPESTATUS[0]}\"",
+      "python3 lib/test/pin-corpus-lint.py mutation-routing-worktree . 2>&1 | head; echo \"rc: ${PIPESTATUS[0]}\"",
+      "printf '%s\\n' \\\n'TMP_CSFX=\"$(mktemp -d)\"' \\\n'assert_eq \"x names file\" \"yes\" \\' \\\n'  \"$(grep -qF '\"'\"'npm.md'\"'\"' \"$TMP_CSFX/out\" && echo yes || echo no)\"' \\\n> .prflow/tmp/mr-test.sh\npython3 - <<'PY'\nimport importlib.util, os\nspec = importlib.util.spec_from_file_location(\"pcl\",\"lib/test/pin-corpus-lint.py\")\nm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\nsrc = open(\".prflow/tmp/mr-test.sh\").read()\nsites = m.extract_guard_sites(src, \".prflow/tmp/mr-test.sh\", os.getcwd())\nfor  …[per-command-truncated]",
+      "lib/test/regenerate-artifacts.py 2>&1 | tail -20; echo \"exit: ${PIPESTATUS[0]}\"",
+      "python3 lib/test/coverage_map_guard.py . 2>&1 | tail -5; echo \"exit: ${PIPESTATUS[0]}\"",
+      "python3 lib/test/coverage_map_guard.py . > .prflow/tmp/cmg.out 2>&1; echo \"exit: $?\"; tail -5 .prflow/tmp/cmg.out; rm -f .prflow/tmp/cmg.out",
+      "git diff origin/main...HEAD | .prflow/vendor/prflow/scripts/stale-prose-lint.py 2>&1 | tail -20; echo \"exit: ${PIPESTATUS[1]}\"",
+      "scripts/stale-prose-lint.py --worktree 2>&1 | tail -20; echo \"exit: ${PIPESTATUS[0]}\"",
+      "rm -rf .prflow/tmp/csidx && mkdir -p .prflow/tmp/csidx/.changeset\ngit -C .prflow/tmp/csidx init -q\nprintf -- '---\\nbump: patch\\n---\\n\\n- tracked good\\n' | tee .prflow/tmp/csidx/.changeset/good.md >/dev/null\ngit -C .prflow/tmp/csidx add .changeset/good.md\nprintf -- '---\\n\"prflow\": patch\\n---\\n\\n- untracked bad\\n' | tee .prflow/tmp/csidx/.changeset/bad.md >/dev/null\necho \"=== untracked bad NOT audited (expect 0) ===\"; python3 lib/test/check_pending_changesets.py --root .prflow/tmp/csidx ; echo \"ex …[per-command-truncated]",
+      "git status --short; echo \"=== preflight ===\"; lib/test/run-parallel.sh --preflight 2>&1 | tail -5; echo \"preflight exit: ${PIPESTATUS[0]}\"",
+      "for sub in descriptor claim mark-running finish; do echo \"=== $sub ===\"; .prflow/vendor/prflow/scripts/verification-flight.py $sub --help 2>&1 | sed -n '1,30p'; done",
+      "rm -f .prflow/tmp/implement-active-1373 .prflow/tmp/issue-body/issue-1373.md .prflow/tmp/flight-decl-1373*.json .prflow/tmp/flight-summary-1373.json 2>/dev/null\ngit status --short | head\necho \"---workpad status---\"\n.prflow/vendor/prflow/scripts/workpad.py body 5210766678 2>&1 | grep -E \"^\\*\\*Status|^\\*\\*PR\" | head"
+    ],
+    "total": 17,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
