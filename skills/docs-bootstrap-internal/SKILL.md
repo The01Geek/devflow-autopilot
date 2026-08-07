@@ -46,7 +46,7 @@ Organize by **business domain and feature area**, not by technical layer.
 [[INTERNAL_DOC_LOCATION]]setup/
 ```
 
-Why: Developers look for docs about the *feature* they're working on ("how do orders work?"), not the *code layer* ("what's in the backend directory?").
+Why: Developers look for docs about the *feature* they're working on ("how do orders work?"), not the *code layer* ("what's in the backend directory?"), so a feature's documentation belongs in one place even when it spans layers.
 
 ### Flat Directory Structure
 
@@ -92,18 +92,18 @@ Run exploratory commands:
 cat CLAUDE.md | head -100
 
 # Top-level structure
-# An unquoted glob must survive zsh's default `nomatch`, which would otherwise refuse to run
-# the command at all — a SKIPPED enumeration that reads like an empty one. The guard turns
-# nomatch off under native zsh and is a no-op elsewhere. With nomatch off an unmatched glob
-# leaves $1 the literal pattern, so `[ -e "$1" ]` decides match-vs-no-match structurally and
-# exactly one of the three arms can print. An empty directory and a
-# PERMISSION-unlistable one both leave the glob unmatched, so the second arm separates those
-# two -- it tests mode bits only, so a failure with another cause (dead mount, EIO) still
-# reaches the empty arm. Listing needs BOTH the read bit (to name the entries) and the search
-# bit (to stat them for the trailing `/`), so that arm tests both. All three arms print on
-# stdout so a caller capturing stdout can still tell "nothing here" from "could not look".
-# Unhandled: bash's `failglob`,
-# where an unmatched pattern aborts `set --` before it runs.
+# An unquoted glob must survive zsh's default `nomatch`, which would otherwise refuse to
+# run the command at all — a SKIPPED enumeration that reads like an empty one. The guard
+# turns nomatch off under native zsh and is a no-op elsewhere. With nomatch off an
+# unmatched glob leaves $1 the literal pattern, so `[ -e "$1" ]` decides match-vs-no-match
+# structurally: no `2>/dev/null` to hide a real error, and exactly one of the three arms
+# can print. An empty directory and a PERMISSION-unlistable one both leave the glob
+# unmatched, so the second arm separates those two -- it tests mode bits only, so a
+# failure with another cause (dead mount, EIO) still reaches the empty arm. Listing needs
+# BOTH the read bit (to name the entries) and the search bit (to stat them for the
+# trailing `/`), so that arm tests both. All three arms print on stdout so a caller
+# capturing stdout can still tell "nothing here" from "could not look". Unhandled: bash's
+# `failglob`, where an unmatched pattern aborts `set --` before it runs.
 [ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
 set -- */
 if [ -e "$1" ]; then
@@ -145,7 +145,7 @@ Based on your analysis, create a categorization plan. Categories should be:
 
 **Domain-specific categories** (derived from your codebase analysis):
 
-For an e-commerce platform, these might be `orders/`, `customers/`, `products/`, `shipping/`. For a CMS, these might be `content/`, `publishing/`, `media/`. Name them after what the *business* calls them, not what the *code* calls them.
+For an e-commerce platform, the categories might be `orders/`, `customers/`, `products/`, `shipping/`. For a CMS, these might be `content/`, `publishing/`, `media/`. Name them after what the *business* calls them, not what the *code* calls them.
 
 ### Step 4: Create the Directory Structure
 
@@ -154,6 +154,8 @@ Create all subdirectories and add `.gitkeep` files so empty directories can be c
 mkdir -p [[INTERNAL_DOC_LOCATION]]/{category1,category2,category3,...}
 find [[INTERNAL_DOC_LOCATION]] -type d -empty -exec touch {}/.gitkeep \;
 ```
+
+Leave the `.gitkeep` files in place; they are superseded as seed documents are added to each directory.
 
 ### Step 5: Write Seed Documents
 

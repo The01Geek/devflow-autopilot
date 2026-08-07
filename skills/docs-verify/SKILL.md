@@ -95,6 +95,9 @@ and read your own qualification — it is the test, not a footnote:
   miss a caller spelled differently", "I enumerated the callers of this helper, not every possible
   path to the endpoint"? Then `discharged` is correct. State the bound; it is the useful part.
 
+The difference is whether the caveat undermines what you asserted, or merely describes where you
+stopped looking.
+
 Unknown is not zero: report a duty you could not close, so the caller looks harder rather than
 planning against a gap they cannot see.
 
@@ -113,9 +116,7 @@ six duties above — they add no seventh duty and license no wider survey:
   real value — read these deliberately rather than assuming the happy path.
 
 **Cite `file:line` in this report.** Your report is ephemeral analysis a caller consumes immediately,
-so line numbers are precise and useful here. In documentation *written into*
-`[[INTERNAL_DOC_LOCATION]]`, reference bare paths and symbol names instead — line numbers rot in
-committed files.
+so line numbers are precise and useful here.
 
 **Calibrate quantitative claims.** Mark any count, size, percentage, or arithmetic total you did not
 read directly from tool output in this session as `(unverified estimate)`, and mark the same way a
@@ -249,7 +250,7 @@ Return findings as text — **do not write them to a file**. Structure:
 A discrepancy in any file **outside** that location — a stale default in a schema, a wrong literal in
 a code comment, an out-of-date example config — is **not a verdict input**. Note it under
 *Drift detail* as an out-of-location contradiction if it is load-bearing, and leave the verdict
-unchanged. Without that stated boundary, two runs over the same tree return different tokens and the
+unchanged. Without a stated boundary, two runs over the same tree return different tokens and the
 caller's escalation decision turns on noise.
 
 If `[[INTERNAL_DOC_LOCATION]]` itself cannot be read, that is **not** `DOCS MISSING` — an absence you
