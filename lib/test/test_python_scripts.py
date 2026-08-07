@@ -14075,6 +14075,66 @@ with tempfile.TemporaryDirectory() as _pm_base:
     assert_eq("#1374: a missing review root answers absent without deriving the branch",
               (1, 'absent: 0'), (_rc, _so.strip()))
 
+    # The REAL _resolve_current_branch, not a substitute: every assertion above swaps the
+    # function out, so nothing else would catch a regression restoring the blanket
+    # `return ""` that made a git failure look like a detached HEAD.
+    _d_norepo = _pmb / 'resolver-no-repo'
+    _d_norepo.mkdir(parents=True, exist_ok=True)
+    _prev_cwd = os.getcwd()
+    os.chdir(_d_norepo)
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            _real_norepo = discover_deferrals._resolve_current_branch()
+    finally:
+        os.chdir(_prev_cwd)
+    _d_repo, _ = _pm_tree('resolver-repo', branch='resolver-probe')
+    os.chdir(_d_repo)
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            _real_repo = discover_deferrals._resolve_current_branch()
+    finally:
+        os.chdir(_prev_cwd)
+    assert_eq("#1374: the real branch resolver returns the sentinel on a git failure and the name on success (a blanket return '' would read a failure as a detached HEAD)",
+              (True, 'resolver-probe'),
+              (_real_norepo is discover_deferrals.BRANCH_UNRESOLVABLE, _real_repo))
+
+    # A branch whose every character the keep-filter drops leaves the branch candidate
+    # unformable. The filing fence falls back to pr-<N>-only because it is best-effort;
+    # this gate must not, because that candidate is the sole source on a first entry.
+    _d, _rev = _pm_tree('branch-slug-empty')
+    try:
+        discover_deferrals._resolve_current_branch = lambda: '\u0424\u0418\u041a\u0421'
+        _rc, _so, _se = _dm_run([_PM_FLAG, '94'], _d)
+    finally:
+        discover_deferrals._resolve_current_branch = _saved_branch
+    assert_eq("#1374: a non-empty branch deriving an EMPTY slug reports unestablished, never absent",
+              (2, True), (_rc, 'unestablished: reason=branch-slug-empty' in _so))
+
+    # A candidate root that exists but cannot be stat'd. classify_root reaches its verdict
+    # through os.path.exists/isdir, which suppress every OSError, so without the gate's own
+    # pre-probe an ELOOP/EIO candidate would classify `absent` and route to "skip".
+    _d, _rev = _pm_tree('candidate-unreadable')
+    _loop = _rev / 'pr-100'
+    try:
+        os.symlink(str(_loop), str(_loop))
+        _sym_ok = True
+    except (OSError, NotImplementedError, AttributeError):
+        _sym_ok = False
+        print("  #1374 candidate-ELOOP fixture unavailable: this host cannot create the symlink loop")
+    if _sym_ok:
+        _rc, _so, _se = _dm_run([_PM_FLAG, '100'], _d)
+        assert_eq("#1374: a candidate root that cannot be inspected reports unestablished, never absent",
+                  (2, True), (_rc, 'unestablished: reason=unreadable-directory' in _so))
+
+    # _probe_review_root's except-OSError arm (distinct from its not-a-directory arm):
+    # a non-directory ANCESTOR makes the stat raise rather than answer.
+    _d = _pmb / 'review-root-ancestor-not-a-dir'
+    (_d / '.prflow').mkdir(parents=True, exist_ok=True)
+    (_d / '.prflow' / 'tmp').write_text('x', encoding='utf-8')
+    _rc, _so, _se = _dm_run([_PM_FLAG, '101'], _d)
+    assert_eq("#1374: a review root whose ancestor is not a directory reports unestablished, never absent",
+              (2, True), (_rc, 'unestablished: reason=unreadable-review-root' in _so))
+
     # ---- AC18b: the argument dispatch does not disturb the discovery contract. The
     # ---- same root-only invocations the filing fence makes — including its unquoted
     # ---- word-split $SEARCH_DIRS form — classify and exit exactly as before, and the

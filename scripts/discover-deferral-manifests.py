@@ -396,6 +396,17 @@ def cmd_presence(rest):
             # could not be resolved leaves the answer unestablished rather than absent.
             return _print_presence_unestablished("branch-unresolvable")
         branch_slug = _derive_branch_slug(branch)
+        if branch and not branch_slug:
+            # A branch that exists but whose every character the keep-filter drops leaves
+            # the branch candidate unformable. The filing fence falls back to pr-<N>-only
+            # with a breadcrumb because it is best-effort; this predicate is a GATE, and
+            # an unsearchable sole-source candidate is an answer it could not establish,
+            # not an absence.
+            sys.stderr.write(
+                "devflow: presence: branch %r derives an empty slug (every character is "
+                "outside [a-z0-9._-]); the branch candidate cannot be formed\n" % branch
+            )
+            return _print_presence_unestablished("branch-slug-empty")
         if branch_slug:
             if _slug_escapes_review_root(REVIEW_ROOT, branch_slug):
                 # A branch name whose slug leaves the review root is a broken input, not
@@ -417,6 +428,21 @@ def cmd_presence(rest):
     results = []
     present = 0
     for root in candidates:
+        # Pre-probe with a guarded stat. `classify_root` is shared with discovery mode —
+        # whose per-root classification this change holds fixed — and reaches its verdict
+        # through `os.path.exists`/`os.path.isdir`, both of which suppress every OSError:
+        # an ELOOP, EIO or stale mount on a candidate would classify `absent` and route
+        # this gate to "skip the procedure" over a tree it could not read at all.
+        try:
+            os.stat(root)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            sys.stderr.write(
+                "devflow: presence: candidate %s could not be inspected (%s)\n"
+                % (os.path.abspath(root), exc)
+            )
+            return _print_presence_unestablished("unreadable-directory", root)
         status, matches = classify_root(root)
         results.append((root, status))
         present += len(matches)
@@ -467,9 +493,20 @@ def _run_presence(rest):
     try:
         return cmd_presence(rest)
     except BaseException:  # noqa: BLE001 - deliberate: see docstring
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        return _print_presence_unestablished("internal-error")
+        # The recovery itself must not be able to re-raise: it writes, and if the original
+        # fault WAS a stdout error the write raises again, escapes, and CPython exits 1 —
+        # `absent`, the one answer this wrapper exists to make unreachable. Whatever the
+        # writes do, the return value is 2.
+        try:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+        except BaseException:  # noqa: BLE001 - the return below is the contract
+            pass
+        try:
+            _print_presence_unestablished("internal-error")
+        except BaseException:  # noqa: BLE001 - the return below is the contract
+            pass
+        return 2
 
 
 def main(argv=None):

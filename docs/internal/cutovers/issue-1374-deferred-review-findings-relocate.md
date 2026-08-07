@@ -54,12 +54,28 @@ because of those two, not because the enumeration says so.
 The `reason=` tokens are a consumed contract — the stub quotes the token into its reflection — so
 each names the operand that could not be established: `malformed-invocation`,
 `unreadable-review-root`, `branch-unresolvable`, `branch-slug-escapes-review-root`,
-`unreadable-directory`, `unreadable-aggregate`, `internal-error`.
+`unreadable-directory`, `unreadable-aggregate`, `internal-error`, plus two that make an
+unformable branch candidate observable rather than absent: `branch-slug-empty` (a non-empty
+branch whose every character the keep-filter drops) and `branch-slug-escapes-review-root`.
 
-**Every probe that decides a state is a guarded `stat`, never `os.path.exists`/`isdir`.** Those
-suppress every `OSError`, so a mode-000 ancestor, a stale mount, or an `EIO` reads identically to
-a genuinely missing path — which would classify an unreadable tree `absent` and reintroduce the
-issue-#555 silent-loss shape one level above the guard that closed it.
+The filing fence handles both of those by breadcrumbing and falling back to `pr-<N>`-only search,
+which is right for a best-effort filing step. It is wrong for a *gate*: on a first Phase 4 entry
+the branch candidate is the sole source, so a fallback there would report `absent` over evidence
+the mode never looked at.
+
+**Every probe presence mode itself performs is a guarded `stat`, never `os.path.exists`/`isdir`.**
+Those suppress every `OSError`, so a mode-000 ancestor, a stale mount, or an `EIO` reads
+identically to a genuinely missing path — which would classify an unreadable tree `absent` and
+reintroduce the issue-#555 silent-loss shape one level above the guard that closed it. That
+covers the review root, each candidate root, and the aggregate.
+
+The candidate pre-probe is deliberately a *separate* guarded `stat` rather than a change to
+`classify_root`, which still reaches its own verdict through `os.path.exists`/`os.path.isdir`.
+`classify_root` is shared with the discovery mode, whose per-root classification this change
+holds fixed, so hardening it here would alter behaviour the change promises to leave alone. The
+consequence is stated rather than papered over: **discovery mode retains that swallow**, and an
+`ELOOP` or `EIO` candidate still classifies `absent` for the filing fence. Presence mode no
+longer inherits it; closing it for discovery mode is separate work.
 
 **A branch git could not resolve is `branch-unresolvable`, not a detached HEAD.** Only git
 *answering cleanly with empty output* is the benign case. On a first Phase 4 entry there is no
