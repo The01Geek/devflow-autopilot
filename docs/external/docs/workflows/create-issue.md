@@ -3,8 +3,6 @@ title: "Create an Issue"
 description: "Turn a rough request into an explicitly approved GitHub issue."
 ---
 
-# Create an Issue
-
 Use this workflow when you want to record work in GitHub instead of implementing it now. It creates one issue only after you approve the final draft. The result is an approved issue or a visible unresolved blocker.
 
 ```text

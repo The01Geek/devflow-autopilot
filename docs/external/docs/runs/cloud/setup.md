@@ -3,9 +3,7 @@ title: "Cloud Setup"
 description: "Configure cloud authentication, repository settings and runtime provisioning."
 ---
 
-# Cloud Setup
-
-This page is for repository maintainers who have installed PRFlow's cloud files and need to make the first run succeed.
+Complete the repository settings, secrets and permissions required for the first PRFlow cloud run.
 
 ## Add Model Authentication
 

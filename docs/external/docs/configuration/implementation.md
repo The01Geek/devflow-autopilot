@@ -3,9 +3,7 @@ title: "Implementation Settings"
 description: "Configure implementation output, checkpoints, stalls and verification reuse."
 ---
 
-# Implementation Settings
-
-This page is for maintainers tuning `/prflow:implement` and same-checkout verification coordination.
+Tune `/prflow:implement` behavior and coordinate verification when multiple agents share the same checkout.
 
 | **Setting** | **Type and accepted values** | **Fallback or scaffold** | **Tier and security note** | **Example** |
 | --- | --- | --- | --- | --- |

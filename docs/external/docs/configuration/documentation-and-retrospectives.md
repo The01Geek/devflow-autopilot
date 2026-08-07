@@ -3,9 +3,7 @@ title: "Documentation and Retrospectives"
 description: "Configure documentation paths, deferred-issue labels and retrospective limits."
 ---
 
-# Documentation and Retrospectives
-
-This page is for maintainers adapting PRFlow's documentation pass and local weekly retrospective to their repository.
+Adapt PRFlow's documentation pass and local weekly retrospective to your repository's documentation layout and improvement process.
 
 ## Documentation and Deferrals
 
