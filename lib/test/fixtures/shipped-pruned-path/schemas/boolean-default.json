@@ -1,0 +1,10 @@
+{
+  "properties": {
+    "docs": {
+      "properties": {
+        "external": { "type": "boolean", "default": true },
+        "internal": { "type": "string", "default": "docs/internal/" }
+      }
+    }
+  }
+}

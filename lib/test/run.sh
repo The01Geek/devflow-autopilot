@@ -49066,33 +49066,52 @@ PY
 # a hardcoded literal) and audits skills/** + agents/** for an unmarked reference. It joins the
 # desk-time static-lint family, driven the same way: the real tree as the live gate, plus
 # synthetic fixtures through --root/--files-from/--slice-source.
+# Issue #1309: two prune targets (docs/external, docs/internal) are also documented docs.*
+# config defaults — the consumer's OWN doc roots — so the lint derives a docs.* exemption set
+# from .prflow/config.schema.json and subtracts them before scanning. The fixture harness
+# supplies a schema shape independently of a slice shape through --schema-source (a schemas/
+# sibling of slices/); the helpers below default to the real-shaped fixture schema so the
+# pre-existing lib/test-target assertions are exemption-neutral.
 SP_LINT="$LIB/test/lint-shipped-pruned-path.py"
 SP_FX="$LIB/test/fixtures/shipped-pruned-path"
 SP_SIMPLE="$SP_FX/slices/simple.sh"
+SP_SCHEMA="$SP_FX/schemas/real-docs.json"
 
-# Real-tree run: exits 0 AND audited a positive number of files (a green run whose count had
-# silently collapsed to zero would otherwise read as clean while auditing nothing).
+# Real-tree run: exits 0 AND its audited count equals an independently derived tracked
+# skills/** + agents/** count. A positive-only floor would stay green if one audited prefix
+# disappeared while the other still selected files.
 SP_OUT="$(cd "$LIB/.." && python3 "$SP_LINT" 2>&1)"; SP_RC=$?
 assert_eq "#1072 lint: clean on the tree as it stands" "rc=0" \
   "$([ "$SP_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$SP_RC" "$SP_OUT")"
-assert_eq "#1072 lint: the real-tree run audited a positive number of files" "yes" \
+SP_TRACKED_POPULATION="$(cd "$LIB/.." && git ls-files -- 'skills/**' 'agents/**' | python3 -c 'import sys; print(sum(1 for line in sys.stdin if line.strip()))')"
+assert_eq "#1072 lint: the real-tree audited count matches the independently enumerated tracked population" "$SP_TRACKED_POPULATION" \
   "$(printf '%s' "$SP_OUT" | python3 -c 'import re,sys
 m = re.search(r"audited (\d+) of", sys.stdin.read())
-print("yes" if m and int(m.group(1)) > 0 else "no")')"
+print(m.group(1) if m else "unestablished")')"
 
-# AC11 / test_derived_set_matches_pinned_expectation: the derived set from the REAL slice equals
-# the checked-in expectation. The floor the non-empty check alone does not provide — dropping the
-# one live member (lib/test) still leaves a non-empty set, so a bare non-empty check would pass
-# over a population it no longer covers. Reading the live vendor-slice.sh through --print-prune-set.
+# AC11 / test_derived_set_matches_pinned_expectation: the POST-EXEMPTION derived set from the
+# REAL slice and REAL schema equals the checked-in expectation. The floor the non-empty check
+# alone does not provide — dropping the one live member (lib/test) still leaves a non-empty set,
+# so a bare non-empty check would pass over a population it no longer covers. Reading the live
+# vendor-slice.sh + .prflow/config.schema.json through --print-prune-set. Issue #1309: docs/external
+# and docs/internal are exempt (documented docs.* defaults), so the pinned set below drops them; the
+# expectation literal itself — not this comment — is the drift-proof record of the membership.
 assert_eq "#1072 lint: derived prune set matches the checked-in expectation" \
-  ".claude-plugin/marketplace.json docs/external docs/internal docs/site lib/test" \
+  ".claude-plugin/marketplace.json docs/site lib/test" \
   "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
 
-# Prune-set derivation over synthetic slices, driven through --slice-source (AC10 matrix).
-sp_pruneset() {  # <slice> -> "rc=<n>|<one-line joined stdout+stderr>"
+# Prune-set / exempt-set derivation over synthetic slices, driven through --slice-source
+# (AC10 matrix). Both print-and-exit flags share one base so the rc-encoding and one-lining
+# — which the assertions compare against — cannot drift between the two. The schema defaults
+# to the real-shaped fixture so a lib/test-target slice is exemption-neutral; a caller needing
+# a specific exemption shape passes $3 (sp_printset) / $2 (the flag-specific wrappers).
+sp_printset() {  # <print-flag> <slice> [schema] -> "rc=<n>|<one-line joined stdout+stderr>"
   local out rc
-  out="$(python3 "$SP_LINT" --print-prune-set --slice-source "$1" 2>&1)"; rc=$?
+  out="$(python3 "$SP_LINT" "$1" --slice-source "$2" --schema-source "${3:-$SP_SCHEMA}" 2>&1)"; rc=$?
   printf 'rc=%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+sp_pruneset() {  # <slice> [schema]
+  sp_printset --print-prune-set "$@"
 }
 # test_nested_removal_is_a_target: a qualifying rm inside a conditional inside the body yields it.
 assert_eq "#1072 lint: a nested (conditional) removal is a target" "rc=0|lib/test" \
@@ -49147,6 +49166,138 @@ assert_eq "#1072 lint: an unlexable body line refuses, attributed to the lexer, 
 assert_eq "#1072 lint: an apostrophe inside a body comment does not refuse (comments stripped pre-lex)" "rc=0|lib/test" \
   "$(sp_pruneset "$SP_FX/slices/comment-apostrophe.sh")"
 
+# ── #1309 docs.* exemption: a prune target that is also a documented docs.* default is exempt ──
+# A schema-specific audit helper (sp_run defaults its schema; these need a chosen shape).
+sp_run_schema() {  # <slice> <schema> <path…> -> "rc=<n>|<stdout+stderr>"
+  local slice="$1" schema="$2"; shift 2
+  local list out rc
+  list="$(probe_tmp '#1309 fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$SP_LINT" --root "$SP_FX" --files-from "$list" --slice-source "$slice" --schema-source "$schema" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+sp_exemptset() {  # <slice> [schema] — shares sp_printset's base with sp_pruneset (no drift)
+  sp_printset --print-exempt-set "$@"
+}
+# The two print modes are alternate complete outputs, not an ordered pair. Rejecting their
+# combination attributes the failure to argparse's mutual-exclusion guard; the single-flag
+# success assertions below are the positive controls on the same slice/schema operands.
+SP_BOTH_OUT="$(python3 "$SP_LINT" --print-prune-set --print-exempt-set --slice-source "$SP_FX/slices/ext-site-libtest.sh" --schema-source "$SP_FX/schemas/ext-only.json" 2>&1)"; SP_BOTH_RC=$?
+assert_eq "#1309 lint: --print-prune-set and --print-exempt-set are mutually exclusive" "yes" \
+  "$(case "rc=$SP_BOTH_RC|$SP_BOTH_OUT" in "rc=2|"*"argument --print-exempt-set: not allowed with argument --print-prune-set"*) echo yes ;; *) echo no ;; esac)"
+# Assertion 1 (RED-first): a prune target that equals a docs.external default is subtracted from
+# the prune set; the co-pruned non-defaults (docs/site, lib/test) survive. RED before #1309: the
+# set still contained docs/external.
+assert_eq "#1309 lint: a docs.* default prune target is exempt from the prune set" "rc=0|docs/site lib/test" \
+  "$(sp_pruneset "$SP_FX/slices/ext-site-libtest.sh" "$SP_FX/schemas/ext-only.json")"
+# Assertion 2 (RED-first): a shipped line naming only the .docs.external default audits clean —
+# no finding, no marker needed. RED before #1309: it reported a pruned-path finding.
+assert_eq "#1309 lint: a line naming only a docs.* default produces no finding" \
+  "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: docs/site lib/test" \
+  "$(sp_run_schema "$SP_FX/slices/ext-site-libtest.sh" "$SP_FX/schemas/ext-only.json" skills/docs-external-default.md)"
+# Assertion 3 (control, GREEN today): the SAME file additionally naming an unmarked lib/test path
+# is still reported — the exemption removes only the exempt root, not the still-forbidden target.
+assert_eq "#1309 lint: a still-forbidden path on an otherwise-exempt file is reported" "yes" \
+  "$(case "$(sp_run_schema "$SP_FX/slices/ext-site-libtest.sh" "$SP_FX/schemas/ext-only.json" skills/docs-external-and-libtest.md)" in "rc=1|"*"docs-external-and-libtest.md:2:"*"lib/test"*) echo yes ;; *) echo no ;; esac)"
+# Assertion 4 (control): membership is EQUALITY, not prefix. A schema whose only default is
+# docs/internal/ does NOT exempt a coarser `docs` prune target (a finer default emptying the guard
+# via prefix would be a silent fail-open).
+assert_eq "#1309 lint: exemption is equality not prefix (a finer default does not exempt a coarser target)" "rc=0|docs" \
+  "$(sp_pruneset "$SP_FX/slices/prune-docs-bare.sh" "$SP_FX/schemas/internal-only.json")"
+# Reverse-direction control: a coarser default must not exempt either finer prune target.
+# Together the pair kills either one-way prefix implementation while preserving equality.
+assert_eq "#1309 lint: exemption is equality not prefix (a coarser default does not exempt finer targets)" "rc=0|docs/external docs/internal" \
+  "$(sp_pruneset "$SP_FX/slices/only-docs.sh" "$SP_FX/schemas/docs-bare-default.json")"
+# Assertion 5 (control): a non-string default contributes no exemption and raises no error.
+assert_eq "#1309 lint: a non-string default contributes no exemption and does not error" \
+  "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run_schema "$SP_SIMPLE" "$SP_FX/schemas/boolean-default.json" skills/clean.md)"
+# Assertion 5a (control): a non-path default (no '/') is never an exemption. --print-exempt-set over
+# the real schema emits neither Documented nor CHANGELOG.md, and a slice pruning CHANGELOG.md against
+# the real schema leaves CHANGELOG.md forbidden.
+assert_eq "#1309 lint: --print-exempt-set omits non-path docs.* defaults (Documented, CHANGELOG.md)" "" \
+  "$(cd "$LIB/.." && python3 "$SP_LINT" --print-exempt-set | grep -E 'Documented|CHANGELOG' || true)"
+assert_eq "#1309 lint: a non-path default does not exempt a CHANGELOG.md prune target" "rc=0|CHANGELOG.md" \
+  "$(sp_pruneset "$SP_FX/slices/prune-changelog.sh")"
+# Assertion 6 (new-mechanism): five unestablished schema shapes each refuse non-zero naming the
+# schema source and audit nothing — the config-JSON six-shape matrix applied to a schema default.
+assert_eq "#1309 lint fail-closed: an absent schema refuses, naming the schema source" "yes" \
+  "$(case "$(sp_pruneset "$SP_SIMPLE" "$SP_FX/schemas/does-not-exist.json")" in "rc=1|"*"could not read schema source"*"does-not-exist.json"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1309 lint fail-closed: an unreadable schema (a directory) refuses, naming the schema source" "yes" \
+  "$(case "$(sp_pruneset "$SP_SIMPLE" "$SP_FX/schemas")" in "rc=1|"*"could not read schema source"*"schemas"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1309 lint fail-closed: an unparseable-JSON schema refuses, naming the schema source" "yes" \
+  "$(case "$(sp_pruneset "$SP_SIMPLE" "$SP_FX/schemas/invalid-json.json")" in "rc=1|"*"invalid-json.json"*"do not parse as JSON"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1309 lint fail-closed: a schema with no properties.docs.properties key refuses" "yes" \
+  "$(case "$(sp_pruneset "$SP_SIMPLE" "$SP_FX/schemas/no-docs-props.json")" in "rc=1|"*"no-docs-props.json"*"no properties.docs.properties key"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1309 lint fail-closed: a properties.docs.properties that is a JSON array refuses" "yes" \
+  "$(case "$(sp_pruneset "$SP_SIMPLE" "$SP_FX/schemas/docs-props-array.json")" in "rc=1|"*"docs-props-array.json"*"not a JSON object"*) echo yes ;; *) echo no ;; esac)"
+# Assertion 7 (new-mechanism): an exemption set covering EVERY prune target empties the forbidden
+# set — the fail-open shape one level down from the empty-prune-set refusal — and refuses non-zero
+# naming BOTH source files, before the --print-prune-set branch.
+assert_eq "#1309 lint fail-closed: an exemption covering every target empties the forbidden set and refuses, naming both sources" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/only-docs.sh" "$SP_FX/schemas/ext-int.json")" in "rc=1|"*"only-docs.sh"*"ext-int.json"*"forbidden set empty"*) echo yes ;; "rc=1|"*"ext-int.json"*"only-docs.sh"*"forbidden set empty"*) echo yes ;; *) echo no ;; esac)"
+# Assertion 8 (new-mechanism): --print-exempt-set emits the MEMBERS SUBTRACTED, not the full set of
+# path-shaped docs.* defaults. Over the real slice+schema it is exactly docs/external and
+# docs/internal — NOT docs/external/release-notes.md (a path-shaped default that is not a prune
+# target, so it subtracts nothing). It emits nothing with exit 0 when the two sets share no member.
+assert_eq "#1309 lint: --print-exempt-set emits exactly the subtracted prune targets (real tree)" \
+  "docs/external docs/internal" \
+  "$(cd "$LIB/.." && python3 "$SP_LINT" --print-exempt-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
+assert_eq "#1309 lint: --print-exempt-set emits nothing (exit 0) when the sets share no member" "rc=0|" \
+  "$(sp_exemptset "$SP_SIMPLE" "$SP_FX/schemas/ext-int.json")"
+# Assertion 9 (RED-first): over the REAL slice and schema the post-exemption prune set contains
+# neither docs/external nor docs/internal. RED before #1309: both were present. (The pinned
+# three-member expectation above and the real-tree clean run — which audits all skills/**+agents/**
+# under both scan_text and scan_citations with the fifteen markers deleted — are the companions.)
+assert_eq "#1309 lint: the real post-exemption prune set contains neither docs/external nor docs/internal" "" \
+  "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | grep -E '^docs/(external|internal)$' || true)"
+
+# Marker-deletion census: a declaration on a line whose only prune-target match is an
+# exempt root, and which suppresses no citation, is redundant. Re-derive that predicate from
+# the live slice/schema and scan the complete tracked population so restoring any deleted
+# false-positive marker makes this assertion RED.
+assert_eq "#1309 lint: no redundant exempt-root-only pruned-path marker remains in the tracked population" "" \
+  "$(cd "$LIB/.." && python3 - "$SP_LINT" <<'PY'
+import importlib.util
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path.cwd()
+spec = importlib.util.spec_from_file_location("shipped_pruned_path", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+all_targets = mod.parse_prune_targets(
+    (root / mod.DEFAULT_SLICE_REL).read_text(encoding="utf-8", errors="replace")
+)
+defaults = mod.parse_docs_defaults((root / mod.DEFAULT_SCHEMA_REL).read_bytes())
+exempt = [target for target in all_targets if target.rstrip("/") in defaults]
+forbidden = [target for target in all_targets if target.rstrip("/") not in defaults]
+paths = subprocess.run(
+    ["git", "ls-files", "--", "skills/**", "agents/**"],
+    cwd=root,
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.splitlines()
+redundant = []
+for relative in paths:
+    lines = (root / relative).read_text(encoding="utf-8").split("\n")
+    states = mod._fence_states(lines)
+    for number, (line, fenced) in enumerate(zip(lines, states), 1):
+        marker = mod._MARKER_SHELL if fenced else mod._MARKER_HTML
+        if not marker.search(line):
+            continue
+        if not any(target in line for target in exempt):
+            continue
+        if any(target in line for target in forbidden) or mod._CITATION.search(line):
+            continue
+        redundant.append(f"{relative}:{number}")
+print(" ".join(redundant))
+PY
+)"
+
 # Audited-population behavior, driven over the fixture skills/ tree with a fixture slice (target
 # lib/test). Every list rides through probe_tmp so the fixtures stay unreachable from the default
 # index enumeration.
@@ -49155,7 +49306,11 @@ sp_run() {  # <slice> <path…> -> "rc=<n>|<stdout+stderr>"
   local list out rc
   list="$(probe_tmp '#1072 fixture list')" || return 0
   printf '%s\n' "$@" > "$list"
-  out="$(python3 "$SP_LINT" --root "$SP_FX" --files-from "$list" --slice-source "$slice" 2>&1)"; rc=$?
+  # --schema-source is REQUIRED here: --root points at $SP_FX, which carries no
+  # .prflow/config.schema.json, so the default schema path would be absent and the
+  # lint would refuse. The real-shaped fixture schema keeps a lib/test-target slice
+  # exemption-neutral (neither docs/external nor docs/internal is lib/test).
+  out="$(python3 "$SP_LINT" --root "$SP_FX" --files-from "$list" --slice-source "$slice" --schema-source "$SP_SCHEMA" 2>&1)"; rc=$?
   rm -f "$list"
   printf 'rc=%s|%s' "$rc" "$out"
 }
@@ -49284,7 +49439,11 @@ sp_run_root() {  # <root> <slice> <path…> -> "rc=<n>|<stdout+stderr>"
   local list out rc
   list="$(probe_tmp '#1072 generated fixture list')" || return 0
   printf '%s\n' "$@" > "$list"
-  out="$(python3 "$SP_LINT" --root "$root" --files-from "$list" --slice-source "$slice" 2>&1)"; rc=$?
+  # --schema-source is REQUIRED (issue #1309): $root is a generated sandbox with no
+  # .prflow/config.schema.json, so the default schema path would be absent and the lint
+  # would refuse before ever reaching the NUL skip this pair asserts. The real-shaped
+  # fixture schema is exemption-neutral for the lib/test-target slice used here.
+  out="$(python3 "$SP_LINT" --root "$root" --files-from "$list" --slice-source "$slice" --schema-source "$SP_SCHEMA" 2>&1)"; rc=$?
   rm -f "$list"
   printf 'rc=%s|%s' "$rc" "$out"
 }
