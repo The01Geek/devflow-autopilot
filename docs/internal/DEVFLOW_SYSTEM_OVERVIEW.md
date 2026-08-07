@@ -897,7 +897,7 @@ Every required CI job runs on `ubuntu-latest`, whose bash is 5.x, so a Bash-4-on
 construct in a shipped helper ships undetected and fails only on a stock macOS user's
 machine — Apple still ships `/bin/bash` 3.2.57, the last GPLv2 release. `lib/test/run.sh`
 carried a Bash-3 block, but it arms only when the host `/bin/bash` reports major version 3,
-so required Linux CI never ran it. The lane closes that gap with four components plus two
+so required Linux CI never ran it. The lane closes that gap with five components plus two
 `ci.yml` jobs. **It is currently advisory: the check is emitted and visible but not
 required.** Making it merge-gating is issue #1395; making its own bytes trusted against a
 hostile pull request is issue #1396; the measured shadow-substitution subsystem the parent

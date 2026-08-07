@@ -287,7 +287,7 @@ def main(argv=None) -> int:
             return 0
         # Every other empty selection is an empty MEASUREMENT, not an empty answer: an
         # unestablished classification, or a conservative decision that somehow selected
-        # nothing, would otherwise run six interpreter probes over zero repository
+        # nothing, would otherwise run the six construct fixtures over zero repository
         # surface and report the lane `pass`. Refuse instead of reporting a clean lane
         # over nothing.
         print("run-bash32-fixtures: an empty selection that is not a fully-established selective "

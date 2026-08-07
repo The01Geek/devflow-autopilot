@@ -34,11 +34,13 @@ def run(cmd):
     """Run cmd; return (rc, stdout, stderr). Never raises — an OSError (gh absent, a
     non-executable shim) is folded into a non-zero rc so every caller degrades
     uniformly to its unestablished arm rather than to an exception at an arbitrary
-    point in the pipeline."""
+    point in the pipeline. `errors="replace"` is part of that contract: undecodable
+    bytes on either stream would otherwise raise a UnicodeDecodeError past the
+    OSError arm, at the one point no caller has an unestablished path for."""
     try:
         result = subprocess.run(
             cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            encoding="utf-8",
+            encoding="utf-8", errors="replace",
         )
         return result.returncode, result.stdout, result.stderr
     except OSError as exc:

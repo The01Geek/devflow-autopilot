@@ -410,7 +410,7 @@ assert_eq "#1277 supervisor: an established empty selection is not_applicable" \
 
 # The mirror case: an UNestablished classification never reaches not_applicable, even
 # with an empty list, because "we could not look" is not "there was nothing". It is a
-# REFUSAL rather than a lane result — running the six interpreter probes over zero
+# REFUSAL rather than a lane result — running the six construct fixtures over zero
 # repository surface and reporting `pass` is exactly the clean-lane-over-nothing the
 # supervisor exists to prevent.
 printf '{"schema_version": 1, "execution": "conservative", "established": false, "selected": []}\n' \
@@ -487,6 +487,51 @@ launcher = sup._load_signal_launcher(root)
 outcome, status, _duration, _output = sup.run_supervised([bash, str(fixture)], 30, launcher)
 print(outcome, status)
 PL_PROPAGATE
+)"
+
+# The WATCHDOG arm, isolated from the interpreter precondition the same way. The
+# end-to-end hang case above stops at the precondition on any non-3.2 host, so both of
+# its arms read `rc=1|fail` and it cannot discriminate; this drives `run_supervised`
+# directly so the expiry path runs on every host. The fixture backgrounds a child that
+# records its pid and outlives the deadline — the pid is what proves the kill reached
+# the process GROUP rather than the direct child.
+_pl_wd_dir="$_pl_tmp_root/watchdog"
+mkdir -p "$_pl_wd_dir"
+# `$!` rather than `$$`/`$BASHPID`: `$$` inside a subshell reports the PARENT shell,
+# and `BASHPID` postdates Bash 3.2 — this lane's whole point is 3.2 portability.
+printf '#!/usr/bin/env bash\nsleep 60 &\necho $! > "%s"\nsleep 60\n' \
+  "$_pl_wd_dir/child.pid" > "$_pl_wd_dir/hang.sh"
+chmod +x "$_pl_wd_dir/hang.sh"
+assert_eq "#1277 supervisor: a fixture that outlives its deadline is a watchdog_expiry with no status, and its backgrounded child is reaped with the group" \
+  "watchdog_expiry None child-reaped" "$(python3 - "$PL_REPO" "$(command -v bash)" "$_pl_wd_dir/hang.sh" "$_pl_wd_dir/child.pid" <<'PL_WATCHDOG'
+import importlib.util, os, sys, time
+from pathlib import Path
+root, bash, fixture, pidfile = Path(sys.argv[1]), sys.argv[2], sys.argv[3], Path(sys.argv[4])
+spec = importlib.util.spec_from_file_location("sup", root / "scripts/run-bash32-fixtures.py")
+sup = importlib.util.module_from_spec(spec); spec.loader.exec_module(sup)
+launcher = sup._load_signal_launcher(root)
+outcome, status, duration, _output = sup.run_supervised([bash, str(fixture)], 1, launcher)
+# The pid file is written by the backgrounded child before it sleeps. An absent or
+# unreadable one is reported as its own token rather than silently passing: a probe
+# that never found a child to reap proves nothing about the group kill.
+try:
+    child_pid = int(pidfile.read_text().strip())
+except (OSError, ValueError):
+    child_pid = None
+if child_pid is None:
+    reaped = "child-pid-unestablished"
+else:
+    reaped = "child-survived"
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child_pid, 0)
+        except (ProcessLookupError, PermissionError):
+            reaped = "child-reaped"
+            break
+        time.sleep(0.05)
+print(outcome, status, reaped)
+PL_WATCHDOG
 )"
 
 assert_eq "#1277 supervisor: an unusable classifier result refuses to run rather than verifying nothing" \
