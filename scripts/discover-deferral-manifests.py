@@ -232,6 +232,10 @@ def _slug_escapes_review_root(review_root, slug):
     The keep-filter above passes `.` and `-`, so a branch named `..` slugs to `..` and
     would point the branch candidate at the review root's parent. Discovery there would
     walk an unrelated tree and could report a manifest that belongs to no run of this PR.
+
+    `scripts/issue-audit-state.py` guards the same hazard for its own slugs with a
+    `[A-Za-z0-9][A-Za-z0-9._-]*` full-match; the two are separate stdlib-only CLIs with no
+    shared module, so this is a sibling to find when hardening, not a call to make.
     """
     base = os.path.normpath(review_root)
     candidate = os.path.normpath(os.path.join(base, slug))
@@ -250,7 +254,7 @@ def _resolve_current_branch():
     try:
         proc = subprocess.run(
             ["git", "branch", "--show-current"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=5,
         )
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -287,7 +291,13 @@ def cmd_presence(rest):
 
     slug_dir = "%s/pr-%s" % (REVIEW_ROOT, pr_number)
     candidates = [slug_dir]
-    branch_slug = _derive_branch_slug(_resolve_current_branch())
+    # Skip the branch derivation entirely when the review root does not exist. Every
+    # candidate under a missing root classifies `absent` and the aggregate cannot exist
+    # either, so the answer is the same — and this is the common case on the path the
+    # predicate exists to make cheap, where the git subprocess would be pure overhead.
+    branch_slug = ""
+    if os.path.isdir(REVIEW_ROOT):
+        branch_slug = _derive_branch_slug(_resolve_current_branch())
     if branch_slug:
         if _slug_escapes_review_root(REVIEW_ROOT, branch_slug):
             sys.stderr.write(
@@ -304,12 +314,9 @@ def cmd_presence(rest):
     # this predicate answers on are the same rules the filing fence then files from.
     results = []
     present = 0
-    first_failed = None
     for root in candidates:
         status, matches = classify_root(root)
         results.append((root, status))
-        if status == "failed" and first_failed is None:
-            first_failed = root
         present += len(matches)
 
     # The slug-level aggregate is a single file one level above the run-scoped
@@ -317,13 +324,18 @@ def cmd_presence(rest):
     # it is the ONLY surviving source once a prior entry has filed and consumed the
     # run-scoped manifests.
     agg_path = "%s/%s" % (slug_dir, MANIFEST_NAME)
+    # Three values only, one per routing branch below. A zero-byte aggregate classifies
+    # `absent` rather than taking a fourth value no branch reads — the discovery mode
+    # matches only files of non-zero size, so an empty aggregate holds nothing either, and
+    # a value the routing never inspects is a case a reader has to prove is not silently
+    # dropped. The size fact stays visible in the breadcrumb below.
     agg_state = "absent"
     if os.path.exists(agg_path):
         if not os.path.isfile(agg_path):
             agg_state = "failed"
         else:
             try:
-                agg_state = "ok" if os.path.getsize(agg_path) > 0 else "empty"
+                agg_state = "ok" if os.path.getsize(agg_path) > 0 else "absent"
             except OSError as exc:
                 sys.stderr.write(
                     "devflow: presence: aggregate %s could not be sized (%s)\n"
@@ -345,6 +357,7 @@ def cmd_presence(rest):
         return 0
     if agg_state == "failed":
         return _print_presence_unestablished("unreadable-aggregate", agg_path)
+    first_failed = next((r for r, s in results if s == "failed"), None)
     if first_failed is not None:
         return _print_presence_unestablished("unreadable-directory", first_failed)
     sys.stdout.write("absent: 0\n")
