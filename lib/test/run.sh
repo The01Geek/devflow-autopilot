@@ -49598,8 +49598,8 @@ PY
 # CLAUDE.md references every other shipped file carries are not reported. The fixture
 # skills/receiving-code-review/ and skills/requesting-code-review/ dirs under $SP_FX each
 # carry a provenance-bearing SKILL.md so the derivation is non-empty; a skills/implement/
-# SKILL.md and an agents/ file (no provenance) are the scope negative controls. Six cases,
-# complete by construction (issue #1401).
+# SKILL.md and an agents/ file (no provenance) are the scope negative controls. The cases
+# below are complete by construction (issue #1401).
 # Case 1 — fires on the SKILL member itself.
 assert_eq "#1401 lint: a CLAUDE.md reference in a vendored SKILL.md is reported" "yes" \
   "$(case "$(sp_run "$SP_SIMPLE" skills/receiving-code-review/SKILL.md)" in "rc=1|"*"skills/receiving-code-review/SKILL.md:"*"references PRFlow's own 'CLAUDE.md'"*) echo yes ;; *) echo no ;; esac)"
@@ -49631,6 +49631,44 @@ assert_eq "#1401 lint: CLAUDE.md in a non-vendored skill SKILL.md is not reporte
   "$(sp_run "$SP_SIMPLE" skills/implement/SKILL.md)"
 assert_eq "#1401 lint: CLAUDE.md in an agents/ file is not reported (scope control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" agents/code-reviewer.md)"
+# Case 7 — the directory-prefix boundary. Membership is startswith() over a TRAILING-SLASH
+# member, so a sibling whose name merely prefixes a derived directory is out of scope; drop
+# the slash and every skills/receiving-code-review-*/ tree would be scanned as vendored.
+assert_eq "#1401 lint: a sibling directory that merely prefixes a derived one is not reported" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/receiving-code-review-x/notes.md)"
+# The scope key is an exact prose substring, so a reword in ONE vendored body drops that
+# directory from scope while the other keeps the empty-derivation guard quiet — the reword
+# that most needs the ban is the one that would silently lift it. Mirrors the #1072 derived
+# prune-set floor: the expectation literal is the drift-proof record of the membership.
+assert_eq "#1401 lint: the derived vendored-skill scope matches the checked-in expectation" \
+  "skills/receiving-code-review/ skills/requesting-code-review/" \
+  "$(cd "$LIB/.." && python3 - "$SP_LINT" <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("sp", sys.argv[1])
+sp = importlib.util.module_from_spec(spec); spec.loader.exec_module(sp)
+print(" ".join(sorted(sp.derive_vendored_skill_dirs(pathlib.Path.cwd()))))
+PY
+)"
+# An unreadable skills/*/SKILL.md refuses instead of silently narrowing the scope: without
+# this arm one unreadable body leaves a non-empty derivation and its whole directory escapes.
+SP_UNREADABLE_ROOT="$(git_sandbox '#1401 unreadable-SKILL root')"
+# A DIRECTORY named SKILL.md is an unreadable member on every platform (IsADirectoryError /
+# PermissionError, both OSError) — deterministic where a chmod is not, since CI may run as root.
+mkdir -p "$SP_UNREADABLE_ROOT/skills/vendored/SKILL.md" 2>/dev/null
+assert_eq "#1401 lint: an unreadable vendored SKILL.md fails the scope derivation closed" "VendoredScopeError" \
+  "$(python3 - "$SP_LINT" "$SP_UNREADABLE_ROOT" <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("sp", sys.argv[1])
+sp = importlib.util.module_from_spec(spec); spec.loader.exec_module(sp)
+try:
+    sp.derive_vendored_skill_dirs(pathlib.Path(sys.argv[2]))
+except sp.VendoredScopeError:
+    print("VendoredScopeError")
+else:
+    print("no-raise")
+PY
+)"
+rm -rf "$SP_UNREADABLE_ROOT"
 
 # ── #1248 ungranted-helper-spelling lint (lib/test/lint-ungranted-helper-spelling.py) ──
 # The cloud matcher grants each bundled helper ONLY at the vendored literal

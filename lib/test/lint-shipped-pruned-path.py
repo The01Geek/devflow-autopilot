@@ -17,7 +17,7 @@ vendored-provenance sentence — because every OTHER shipped file may legitimate
 `CLAUDE.md` as the consumer's own project memory. The vendor slice never copies PRFlow's
 `CLAUDE.md`, so a pointer to it in a vendored body resolves against a consumer's own,
 unrelated project-memory file. The scope is derived, never a transcribed directory list,
-and an empty derivation refuses non-zero rather than scanning nothing. All three are
+and an empty or unestablished derivation refuses non-zero rather than scanning nothing. All three are
 exempted by the same per-line declaration marker described below.
 
 Why this exists: `.github/actions/vendor-plugin/vendor-slice.sh`'s
@@ -160,6 +160,15 @@ class DocsDefaultsParseError(Exception):
     that cannot yield a real exemption derivation, so the two derivations fail closed
     on identical terms. The caller catches it in `main` and refuses non-zero naming the
     schema source — an unestablished exemption set is never silently an empty one.
+    """
+
+
+class VendoredScopeError(Exception):
+    """The vendored-skill directory scope could not be established (issue #1401).
+
+    Raised on an unreadable `skills/*/SKILL.md`: skipping one would drop its directory
+    from scope while another match keeps the empty-derivation guard quiet, so every file
+    in the dropped directory escapes the token ban on an exit-0 run.
     """
 
 
@@ -476,14 +485,16 @@ def derive_vendored_skill_dirs(root: Path) -> set[str]:
     `_pop.read_source` — the derivation is a property of the on-disk tree, not of the
     audited population a test may narrow or stub. An empty result is the caller's
     fail-closed signal; `main` refuses non-zero rather than scanning nothing, the same
-    posture as the empty-prune-set refusal.
+    posture as the empty-prune-set refusal. An unreadable `SKILL.md` raises rather than
+    skipping, because a partial derivation drops that directory from scope while the
+    remaining match keeps the empty-derivation guard quiet.
     """
     dirs: set[str] = set()
     for skill_md in root.glob("skills/*/SKILL.md"):
         try:
             text = skill_md.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
+        except OSError as exc:
+            raise VendoredScopeError(f"could not read {skill_md}: {exc}") from exc
         if _PROVENANCE_SENTENCE in text:
             dirs.add(f"skills/{skill_md.parent.name}/")
     return dirs
@@ -662,7 +673,15 @@ def main(argv: list[str] | None = None) -> int:
     # #1401). An empty derivation is a fail-open shape — no directory would be scanned
     # for the token — so it refuses non-zero naming the empty population, the same
     # posture as the empty-prune-set and empty-audited refusals above.
-    vendored_dirs = derive_vendored_skill_dirs(root)
+    try:
+        vendored_dirs = derive_vendored_skill_dirs(root)
+    except VendoredScopeError as exc:
+        print(
+            f"lint-shipped-pruned-path: could not establish the vendored-skill scope "
+            f"under {root}: {exc}; auditing nothing",
+            file=sys.stderr,
+        )
+        return 1
     if not vendored_dirs:
         print(
             "lint-shipped-pruned-path: no skills/<name>/SKILL.md under "
