@@ -47,8 +47,8 @@ A malformed invocation reports `2`, the same fail-closed convention `scripts/wor
 deferred-presence` adopts, so a bad call loads the reference rather than silently skipping it.
 
 **`1` is also CPython's exit status for an uncaught exception**, and `1` here means "skip the
-procedure" — so a caller routing on the exit status alone, which the mode's own contract says is
-sufficient, would read a crash as "nothing was deferred" and strand every acknowledged finding.
+procedure" — so a caller routing on the exit status alone would read a crash as "nothing was deferred" and
+strand every acknowledged finding.
 Two layers close that. In the helper, `_run_presence` wraps the mode in a `BaseException` handler
 that routes any escaping exception to `unestablished: reason=internal-error`. In the stub, the
 skip arm requires **both** exit `1` **and** the literal `absent: 0` line, so an exit `1` carrying

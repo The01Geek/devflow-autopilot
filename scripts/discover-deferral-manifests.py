@@ -78,8 +78,9 @@ so both gated Phase 4 sub-steps document one identical three-state contract; the
 is that presence mode cannot tell a partial failure from a total one. A malformed
 invocation reports `2` as well — the same fail-closed convention `workpad.py
 deferred-presence` adopts, so a bad call loads the reference rather than silently
-skipping it. Every state is decided from the exit status alone; no caller parses stdout
-to route.
+skipping it. The exit status carries every state, and the one place a caller reads stdout
+is the shipped stub's skip arm: it requires the literal `absent: 0` line ALONGSIDE exit 1,
+because a crashing interpreter also exits 1 and would otherwise route to the skip.
 
 Usage:
     discover-deferral-manifests.py ROOT [ROOT ...]
@@ -447,7 +448,7 @@ def cmd_presence(rest):
                     % (branch_slug, os.path.abspath(REVIEW_ROOT))
                 )
                 return _print_presence_unestablished(
-                    "branch-slug-escapes-review-root", REVIEW_ROOT
+                    REASON_BRANCH_SLUG_ESCAPES, REVIEW_ROOT
                 )
             branch_dir = "%s/%s" % (REVIEW_ROOT, branch_slug)
             if branch_dir != slug_dir:
@@ -491,8 +492,8 @@ def cmd_presence(rest):
 
     # The aggregate counts toward the reported total. Reporting it as `present: 0` on the
     # aggregate-only path would put the present line one glyph from the `absent: 0` line
-    # that means the opposite — routing is exit-code-only, but a human reading the tool
-    # result would take the wrong signal.
+    # that means the opposite — the present arm carries no line a caller matches on, but a
+    # human reading the tool result would take the wrong signal.
     if agg_state == "ok":
         present += 1
     # Present wins over an unreadable sibling: a finding this mode positively saw is

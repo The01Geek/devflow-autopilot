@@ -6,7 +6,7 @@
     "scripts/branch-for-issue.py": "b44954f903e4d1c35f09d0d7f91183802f804e919d765cf4d9ec9e78228dd050",
     "scripts/check-completion-evidence.py": "64cd7d25800739d4c7829313ff27ef9986a5d50c86750917a3d09f299cac58e2",
     "scripts/config-get.sh": "377f6043b7e0f1e5fc953cc766a5323c5e684c07e569b32812a17a31785245a5",
-    "scripts/discover-deferral-manifests.py": "6f5bc3268958bc9583aa8bcb4bd9525e11189647e4703960f3ebecd68048b225",
+    "scripts/discover-deferral-manifests.py": "4f9da3a6cb540f3c16a0b440c1404d3455f3df4fbe5cb02bfcee1ba3d69254b9",
     "scripts/dismiss-stale-rejections.sh": "86e002098a5b59f4d396e20a510bd757c8c9dfcdac1d267aa6631171521bfe3e",
     "scripts/ensure-label.sh": "5270fdb7d7bd44c0c2d55c753758834c34fb5c8eaa28942d500c668e025229c5",
     "scripts/extract-doc-needed-paths.sh": "1813edaa0a5c3af7303db62fe5a3b0fcd5f33b42d36ee25c8100eb107880f040",

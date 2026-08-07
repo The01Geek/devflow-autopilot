@@ -13736,8 +13736,9 @@ with tempfile.TemporaryDirectory() as _dm_sym:
 # ── any deferred review finding is present for a PR without the phase file having to
 # ── carry the filing procedure's bytes. Its contract is deliberately flat where the
 # ── discovery mode's is not — present/absent/unestablished as exit 0/1/2 — so both
-# ── gated Phase 4 sub-steps document one three-state shape. Every state is decided
-# ── from the process exit status alone; nothing here parses stdout to route.
+# ── gated Phase 4 sub-steps document one three-state shape. The exit status carries
+# ── every state; the shipped stub additionally requires the literal `absent: 0` line
+# ── on its skip arm, because a crashing interpreter also exits 1.
 print("discover-deferral-manifests.py (#1374): presence mode — three-state exit contract")
 
 _PM_FLAG = '--presence-for-pr'
@@ -13941,6 +13942,28 @@ with tempfile.TemporaryDirectory() as _pm_base:
     _rc, _so, _se = _dm_run([_PM_FLAG, '84'], _d)
     assert_eq("#1374: an aggregate present but unreadable reports unestablished (exit 2) naming that reason",
               (2, True), (_rc, 'unestablished: reason=unreadable-aggregate' in _so))
+
+    # ---- Present WINS over an unreadable sibling. The PR slug is a regular file (the
+    # ---- same deterministic ENOTDIR shape as above) while the branch slug holds a real
+    # ---- manifest: a finding the mode positively saw is not made less present by a
+    # ---- directory it could not read. Without the `if present:` check ordered ahead of
+    # ---- the failed-sibling checks this returns unestablished, and no other fixture
+    # ---- pairs a non-zero count with a failed root, so a reordering regression here
+    # ---- would keep every one of them green.
+    _d, _rev = _pm_tree('present-over-failed-sibling', branch='feat/Wins')
+    (_rev / 'pr-85').write_text('x', encoding='utf-8')
+    _dm_manifest(_rev / 'feat-wins', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
+    _rc, _so, _se = _dm_run([_PM_FLAG, '85'], _d)
+    assert_eq("#1374: a present branch-slug manifest wins over an unreadable PR-slug sibling (exit 0)",
+              (0, 'present: 1'), (_rc, _so.strip()))
+    # Control on the SAME fixture shape: drop the manifest and the sibling's unreadability
+    # is what decides. Without it, a fixture whose PR slug was in fact readable would give
+    # the assertion above the identical green while exercising no such precedence.
+    _d, _rev = _pm_tree('present-over-failed-sibling-control', branch='feat/Wins')
+    (_rev / 'pr-85').write_text('x', encoding='utf-8')
+    _rc, _so, _se = _dm_run([_PM_FLAG, '85'], _d)
+    assert_eq("#1374: the same fixture WITHOUT the manifest reports unestablished — the sibling is genuinely unreadable",
+              (2, True), (_rc, 'unestablished: reason=unreadable-directory' in _so))
 
     # ---- Unestablished: a malformed invocation. Mirrors workpad.py deferred-presence,
     # ---- whose usage exit is deliberately its unestablished code so a bad call routes
