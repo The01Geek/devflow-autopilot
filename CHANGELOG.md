@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.39] — 2026-08-08
+
+### Changed
+Bring the fix-loop references `loop-exit.md` and `loop-control.md` under the instruction-plus-consequence prose rule (#1419, PR #1429): remove rejected-design records, motivating-incident recounts, reviewer-misreading pre-emptions, and maintainer-retirement notes while keeping every instruction, prohibition, degraded arm, reason string, exact command, and JSON field name byte-identical.
+
 ## [2.31.38] — 2026-08-08
 
 ### Changed
