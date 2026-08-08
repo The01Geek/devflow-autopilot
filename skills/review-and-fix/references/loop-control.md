@@ -129,14 +129,7 @@ Keeping local `HEAD` equal to the PR head is what lets Step 1's head-override (p
 
 On iteration 1, skip this step — there is no prior iteration to hand off from. Proceed directly to Step 1.
 
-On iterations N ≥ 2, prepare the iter-(N-1) state Phase 1, Phase 2, and Phase 3 of the engine will consume. **Phase 1+2 always re-run**; this step does NOT skip them. The earlier version of this gate did skip Phase 1+2 wholesale when the fix commit didn't intersect the prior checklist's files, and that turned out to be the primary false-pass mechanism for this skill — see the rationale block below. A promoted iteration is the explicit exception described in Step 2.6: its short-circuit staging artifact also carries the promotion site's chosen `promotion_provenance`, so the fused iter-record Write reads durable staged state rather than conversational memory.
-
-**Why this step is a handoff, not a skip gate.** The user's framing, which is load-bearing: iterations exist for two distinct reasons that need *different* responses.
-
-1. **Fix-induced defects** — did the fix introduce new bugs? File-intersection between the fix commit and the prior checklist IS the right signal here, and we exploit it via Phase 2's narrow per-item reuse (see /prflow:review's Phase 2.0.5).
-2. **Variance-recovered defects** — did iter-(N-1) miss something a second look would find? File-intersection is the WRONG signal here. The very assumption iterations exist to challenge is that the prior pass's checklist was complete; gating Phase 1+2 on "the fix touched a prior-checklist file" silently sacrifices this case to optimize the first. Variance recovery is handled by (a) Phase 1's generator running fresh with the prior checklist as a dedup input, and (b) Phase 3's review agents always re-running with prior findings labeled "already considered, look for new."
-
-This step's job is to compute and stage the inputs both Phase 1 and Phase 2 need; it does not decide whether to run them.
+On iterations N ≥ 2, prepare the iter-(N-1) state Phase 1, Phase 2, and Phase 3 of the engine will consume. **Phase 1+2 always re-run**; this step does NOT skip them. A promoted iteration is the explicit exception described in Step 2.6: its short-circuit staging artifact also carries the promotion site's chosen `promotion_provenance`, so the fused iter-record Write reads durable staged state rather than conversational memory.
 
 Compute:
 
@@ -175,8 +168,6 @@ Resolution steps:
 
 Execute the engine's **Phases 0 through 4.3 verbatim** — do not improvise the Phase 3 agent prompts, do not skip the Phase 1 >10-file batching, do not substitute your own verdict criteria. This skill deliberately does *not* contain a paraphrase of those phases.
 
-**Why path-based loading, not `Skill: "prflow:review"`.** The `Skill` tool *executes* a skill end-to-end; it would run /prflow:review's Phase 4.4 (formal GitHub post) before this loop has converged, defeating the deferred-post design. We need /prflow:review's phases as a *procedure read inline*, not as an opaque invocation. The price of that is the caller-located binding above: reading the engine as a file means the caller — not the `Skill` loader — supplies the engine's directory, so the resolution and the `<engine-dir>` binding are what keep the bundle self-consistent. If the plugin layout `<plugin-root>/skills/<skill-name>/SKILL.md` (per the agentskills.io convention) ever changes, update the candidate list here and the "Engine sharing" paragraph at the top of /prflow:review's SKILL.md together.
-
 **Self-review / version-skew (the artifact under review *is* the executing engine).** When the PR under review modifies devflow's own engine surface (`skills/**`, `agents/**`, `lib/**`, a prompt extension under the `.prflow/` or `.devflow/` state directory ending in `.md` at any depth, or a file whose basename is `CLAUDE.md` at any depth), a hazard applies that doesn't exist on an adopter's repo: **loaded-vs-edited skew.** Your *own* running instructions are whatever was loaded at invocation (often the plugin cache), which may predate the branch's engine edits — so a change this very PR makes to the loop wrapper does **not** alter the loop you are currently executing. Because the resolution above lists the repo-root `<repo-root>/skills/review` **first**, a self-review always resolves the branch's own engine (never a stale plugin-cache copy carrying a `devflow/` path component). Read the engine fresh from `<engine-dir>` on every Step 1 (and Step 2.6) rather than trusting loaded memory of "what the engine does," and treat the branch's engine as authoritative when it disagrees with your loaded copy.
 
 **Ruling per limb for the prompt-extension and `CLAUDE.md` arms.** These two arms are ruled separately because the two hazard limbs above behave differently on them:
@@ -198,7 +189,7 @@ Skip /prflow:review's Phase 4.4 (formal GitHub review posting). Phases 0–4.3 s
 - Guess the engine directory instead of using the one Step 1's ordered candidate list resolved
 - append focus/prioritize/scope clauses to a shadow prompt, hand it regenerated or subsetted diff artifacts, or write steering into its prompt-extension file
 
-Every drift incident this skill has had traces to one of those rationalizations. Violating the letter of /prflow:review's phases is violating the spirit, even when the paraphrase reads correct. The engine-defined iter-N≥2 prior-findings handoff is sanctioned only for Step-1 loop iterations, never for a shadow prompt; provenance-clean extension text is the only sanctioned shadow-prompt addition.
+The engine-defined iter-N≥2 prior-findings handoff is sanctioned only for Step-1 loop iterations, never for a shadow prompt; provenance-clean extension text is the only sanctioned shadow-prompt addition.
 
 The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with notes, APPROVE WITH CAVEAT, APPROVE WITH ADVISORY NOTES, REJECT} (matching `/prflow:review`'s Phase 4.1 enum) plus a markdown report. Phase 0.5 flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`, `checklist_skipped`) apply unchanged. **The fix loop's iteration cap is still `$MAX_ITERS`** (the configured cap; default 5) — Phase 0.5 scales the checklist, not the loop and not the Phase 3 roster.
 

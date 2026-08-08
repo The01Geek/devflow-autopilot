@@ -4,6 +4,34 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.41] — 2026-08-08
+
+### Changed
+Editorially compress the review engine root (`skills/review/SKILL.md`) and its two Phase 4 references (`phase-4-4-github-post.md`, `phase-4-1-7-stale-adjudication.md`) under the instruction-plus-consequence prose rule (PR #1435): remove withheld-workflow archaeology, the maintainer-facing Common Mistakes section, a motivating-incident census figure, anti-misreading paragraphs, and duplicate restatements, while preserving every instruction, prohibition, named failure token, exact command form, closed-set enumeration, and pinned literal.
+
+## [2.31.40] — 2026-08-08
+
+### Fixed
+Repaired two false cross-references from the `/prflow:review-and-fix` fix loop into the shared
+review engine. The Step 2.6 over-grade calibration gate named a section of `skills/review/SKILL.md`
+that does not exist; it now names `skills/review/phases/phase-4-verdict.md`, where the over-grade
+shapes are actually defined. The shadow-review novelty rule paraphrased the engine's
+`defect_signature` corroboration rule while dropping its clause treating a `null` `line_range` as
+overlapping any range in the same file when `kind` matches; the paraphrase is removed in favour of a
+pointer to `skills/review/phases/phase-3-agents.md`, so a `line_range: null` finding the previous
+iteration already recorded no longer reads as new and no longer promotes a spurious iteration that
+could surface as `APPROVE WITH UNRESOLVED SHADOW FINDINGS`.
+
+## [2.31.39] — 2026-08-08
+
+### Changed
+Bring the fix-loop references `loop-exit.md` and `loop-control.md` under the instruction-plus-consequence prose rule (#1419, PR #1429): remove rejected-design records, motivating-incident recounts, reviewer-misreading pre-emptions, and maintainer-retirement notes while keeping every instruction, prohibition, degraded arm, reason string, exact command, and JSON field name byte-identical.
+
+## [2.31.38] — 2026-08-08
+
+### Changed
+- **Compressed the rationale prose in `skills/retrospective-weekly/SKILL.md` for conformance with the instruction-plus-consequence prose rule.** Trimmed design-decision records, reviewer-misreading pre-emptions, and motivating-incident narration from the fenced `#` comments and body prose down to the instruction plus one consequence sentence, preserving every breadcrumb literal, degraded-arm reason string, exact command form, closed-set member, `# argjson-ok:` marker, and subagent-dispatch handoff. No behavioral change. (#1427)
+
 ## [2.31.37] — 2026-08-08
 
 ### Changed
