@@ -7216,10 +7216,10 @@ review.md:command review implement
 review-and-fix.md:command implement
 receiving-code-review.md:command implement
 create-issue.md:command
-pr-description.md:command
+pr-description.md:command implement
 docs-bootstrap-external.md:command
-docs-sync-external.md:command
-docs-sync-internal.md:command"
+docs-sync-external.md:command implement
+docs-sync-internal.md:command implement"
 
 # Union-ungranted heads for one extension file under one tier, against a given config JSON
 # (parameterized so the T2 fixture can drop a grant and prove the config channel is really
@@ -12089,7 +12089,7 @@ echo "load-prompt-extension.sh (consumer prompt-extension reader)"
 # module owns the whole former in-file section; see its .inventory.md for the
 # coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/prompt-extension-reader.sh" \
-  "prompt-extension-reader" 156; then
+  "prompt-extension-reader" 157; then
   printf 'ERROR: prompt-extension-reader boundary could not record its result\n'
   exit 1
 fi
@@ -50043,6 +50043,12 @@ AF_RED_OUT="$(python3 "$AF_LINT" --root "$AF_FX/red" 2>&1)"; AF_RED_RC=$?
 assert_eq "#1124 lint: an anchor-only enrolled site is reported (RED, non-vacuous)" "1" "$AF_RED_RC"
 assert_eq "#1124 lint: the RED report names the enrolled call site" "yes" \
   "$(case "$AF_RED_OUT" in *"skills/review/SKILL.md: 'load-prompt-extension.sh review' is invoked via the unexpanded"*) echo yes ;; *) echo no ;; esac)"
+# issue #1432: the anchor-only detection path must fire for a NEWLY-enrolled non-review
+# site too, so the drift guarantee is non-vacuous for the four sites this issue enrolls
+# (a future path-shaped filter that skipped docs-*/pr-description bodies would otherwise
+# pass unnoticed). The red fixture carries pr-description in anchor-only form for this.
+assert_eq "#1124 lint: the RED report names a newly-enrolled non-review site (pr-description)" "yes" \
+  "$(case "$AF_RED_OUT" in *"skills/pr-description/SKILL.md: 'load-prompt-extension.sh pr-description' is invoked via the unexpanded"*) echo yes ;; *) echo no ;; esac)"
 # GREEN fixture: both forms present at every enrolled site → rc=0.
 assert_eq "#1124 lint: a both-forms enrolled site passes (GREEN)" "yes" \
   "$(python3 "$AF_LINT" --root "$AF_FX/green" >/dev/null 2>&1 && echo yes || echo no)"
