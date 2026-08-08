@@ -775,7 +775,7 @@ assert_eq "rpe grant: the review-profile lock carries the wrapper's wildcard hea
 # Each skill that carries a placeholder must name ITS OWN extension. A copy-paste that left
 # a sibling's skill name behind would render the wrong consumer policy into that skill and
 # nothing else in the suite would notice.
-for RPE_SKILL in review review-and-fix implement; do
+for RPE_SKILL in review review-and-fix implement pr-description; do
   assert_eq "rpe placeholder: skills/$RPE_SKILL/SKILL.md renders its own extension" "yes" \
     "$(grep -Fq '!`${CLAUDE_SKILL_DIR}/../../scripts/render-prompt-extension.sh '"$RPE_SKILL"'`' \
        "$LIB/../skills/$RPE_SKILL/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body — the target is the $RPE_SKILL loop variable, not a static pin

@@ -78,6 +78,16 @@ ENROLLED: tuple[tuple[str, str], ...] = (
     # the unestablished arm, and read the reference the gate exists to skip.
     ("skills/implement/phases/phase-4-documentation.md",
      "discover-deferral-manifests.py --presence-for-pr <this-run's-PR-number>"),
+    # Enrolled at issue #1432. These four extension loads are reached on the cloud
+    # implement tier — pr-description via /prflow:implement Phase 4.2 (Skill tool from
+    # the orchestrator), and the three docs children via the Phase 4.1 docs subagent —
+    # yet shipped with the bare anchor alone, so their consumer policy was silently
+    # dropped there. The vendored-literal-first conditional arm fixes both the matcher
+    # denial and the subagent unresolvable-anchor case.
+    ("skills/pr-description/SKILL.md", "load-prompt-extension.sh pr-description"),
+    ("skills/docs-sync-internal/SKILL.md", "load-prompt-extension.sh docs-sync-internal"),
+    ("skills/docs-sync-external/SKILL.md", "load-prompt-extension.sh docs-sync-external"),
+    ("skills/docs-release-notes/SKILL.md", "load-prompt-extension.sh docs-release-notes"),
 )
 
 #: The portable source anchor prefix (issue #275), byte-identical to the ``lpe-coverage``

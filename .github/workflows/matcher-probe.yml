@@ -595,12 +595,12 @@ jobs:
           allowed_bots: "*"
           prompt: |
             You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each of
-            the 17 numbered command shapes below EXACTLY ONCE, each in its OWN single
+            the 18 numbered command shapes below EXACTLY ONCE, each in its OWN single
             tool call, VERBATIM — do not modify, wrap, quote-escape, split, or combine
             them, and do not add any command that is not listed. Attempt them in order
-            1 through 17. If a shape is DENIED or errors, do NOT retry it and do NOT try
+            1 through 18. If a shape is DENIED or errors, do NOT retry it and do NOT try
             a different formulation — move straight to the next number. After
-            attempting all 17, STOP and reply with the single word DONE.
+            attempting all 18, STOP and reply with the single word DONE.
 
             Your text output is not measured. Only the harness record of which tool
             calls the permission matcher allowed versus denied is measured. Attempt
@@ -717,6 +717,19 @@ jobs:
             measures whether the harness LET the command run, not what it returned. Run
             it verbatim:
             lib/test/coverage_map_guard.py --iprobe17direct
+
+            Shape 18 — UNEXPANDED CLAUDE_SKILL_DIR anchor as the leading token,
+            load-prompt-extension.sh (Bash). This is the exact phase-4.2/4.1
+            prompt-extension emission form issue #1432 suspects the matcher DENIES on
+            this tier — the pr-description and prflow:docs child skills shipped this
+            load through the bare anchor alone. It is expected to exit non-zero (the
+            anchor's `:-` default resolves to a path absent in this checkout), but
+            permission granted vs denied is what matters, not the exit code — run it
+            VERBATIM, do not expand the anchor yourself. VERDICT PENDING: no
+            workflow_dispatch run has recorded this row yet; a human must dispatch
+            matcher-probe.yml and read the implement-profile table before this row's
+            PERMITTED/DENIED verdict is established:
+            "${CLAUDE_SKILL_DIR:-.prflow/vendor/prflow/skills/implement}"/../../scripts/load-prompt-extension.sh iprobe18anchor
 
           plugin_marketplaces: |
             https://github.com/anthropics/claude-plugins-official.git
@@ -838,6 +851,9 @@ jobs:
               (15, "literal leading `VAR=value` assignment before a granted head",    "iprobe15literal",         "IPROBE15=iprobe15literal"),
               (16, "computed leading `VAR=\"$(head)\"` assignment before a granted head", "iprobe16capture",      "$(echo iprobe16capture)"),
               (17, "executable `.py` invoked as a direct leading token (issue #789)",  "iprobe17direct",          "lib/test/coverage_map_guard.py"),
+              # Verdict PENDING a human workflow_dispatch recording (issue #1432): no
+              # probe run has measured this row yet.
+              (18, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (load-prompt-extension.sh)", "iprobe18anchor", "${CLAUDE_SKILL_DIR"),
           ]
 
           # Rows 10–16 cover everyday ad-hoc command forms. Their evidence must

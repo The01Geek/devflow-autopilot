@@ -7216,10 +7216,10 @@ review.md:command review implement
 review-and-fix.md:command implement
 receiving-code-review.md:command implement
 create-issue.md:command
-pr-description.md:command
+pr-description.md:command implement
 docs-bootstrap-external.md:command
-docs-sync-external.md:command
-docs-sync-internal.md:command"
+docs-sync-external.md:command implement
+docs-sync-internal.md:command implement"
 
 # Union-ungranted heads for one extension file under one tier, against a given config JSON
 # (parameterized so the T2 fixture can drop a grant and prove the config channel is really
