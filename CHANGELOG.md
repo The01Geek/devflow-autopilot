@@ -4,6 +4,18 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.46] — 2026-08-08
+
+### Changed
+The never-shipped-workflow lint no longer counts the withheld tier as shipped. Only the installer's workflow copy loop puts a file in a consumer's `.github/workflows/`, so a withheld-tier workflow — which reaches no fresh install and survives only in a repo that installed before the tier was withheld — is now forbidden on the shipped prompt surface like any other never-shipped name. `DEVFLOW_WITHHELD_TIER` is no longer read by the lint at all, leaving the installer's own removal machinery as its single reader.
+
+Three shipped bodies that named such a workflow are reworded to name none. The implement skill's cloud-tier workflow impact check now scans the repo's own workflow directory and the vendored copy as separate families instead of grepping one hardcoded path, so an absent family reports "check NOT applicable" for itself rather than being hidden behind the other family's result.
+
+## [2.31.45] — 2026-08-08
+
+### Changed
+Editorially compressed the fix loop's root `SKILL.md` and its `pre-fix-gates.md` and `fix-delta-gate.md` gate references under the instruction-plus-consequence prose rule. Defensive-why, past-incident narrative, second consequence sentences and the maintainer-routing note are gone, and the two citations of a non-shipping artifact are removed — one replaced by an inline restatement, one dropped as a bare citation with the clause it qualified retained. Every decision arm, enum value, threshold, failure-map row and JSON field name is preserved unchanged. One clause is added rather than removed: the denied-shapes rule now says outright that it does not bar the tier-agnostic procedure's anchor fallback arm.
+
 ## [2.31.44] — 2026-08-08
 
 ### Changed

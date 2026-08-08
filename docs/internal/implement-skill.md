@@ -540,7 +540,10 @@ staging tree does not survive teardown, so the cloud recovery path is the **uplo
 artifact** the auto-review tier stages and uploads, which the trusted telemetry-push relay
 (`telemetry-push.yml`, issue #489) downloads, validates, and pushes — not any on-disk copy the
 ephemeral runner cannot retain (coupled with `skills/implement/phases/phase-3-review.md` and
-`docs/internal/efficiency-trace.md`, which say the same). If the stderr capture itself can't be allocated
+`docs/internal/efficiency-trace.md`, which say the same — the shipped phase file names the relay
+generically rather than by filename, because since issue #1423 the never-shipped-workflow lint
+forbids a withheld-tier workflow name on the shipped prompt surface; do not re-sync the literal
+into it). If the stderr capture itself can't be allocated
 (`mktemp` fails), the backstop degrades to discarding `--persist`'s stderr entirely rather than
 aborting — this disables the record-write-failure check for that run (the no-inputs case still
 runs) and emits its own distinct `::warning::`, the same degrade-and-warn discipline as the
