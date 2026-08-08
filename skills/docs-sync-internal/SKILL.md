@@ -132,7 +132,7 @@ Make output scannable using bullet points, numbered lists, and clear headings.
 **File Operations:**
 - Create or edit documentation files inside `[[INTERNAL_DOC_LOCATION]]` as needed
 - Do not create or edit documentation files outside of `[[INTERNAL_DOC_LOCATION]]`
-- Use the repository's `CLAUDE.md` for guidance on style and conventions (this file names the consumer's own `CLAUDE.md`, so it is not removed), **and** read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md` and follow it when composing the documentation prose — it covers the prose-voice rules the consumer's `CLAUDE.md` does not. A failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
+- Use the repository's `CLAUDE.md` for guidance on style and conventions, **and** read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md` and follow it when composing the documentation prose — it covers the prose-voice rules the consumer's `CLAUDE.md` does not. A failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
 
 **Code References in Documentation:**
 - Reference source files by bare path only (e.g., `src/server.py`) — **never append line numbers** (e.g., do not write `server.py:42` or `server.py:42-57`)
@@ -190,7 +190,7 @@ Edit files in `[[INTERNAL_DOC_LOCATION]]`:
 **Step 5: Verify Every Factual Claim Against the Codebase**
 ⚠️ **MANDATORY — do not skip. Write docs from the code, never from the issue body, the plan, or your memory of what the change "should" do.**
 
-Issue bodies and implementation plans describe *intent*; they routinely list call sites, counts, file paths, and behaviors that turn out to be already-clean, off by one, renamed, or never implemented. A doc update copied from the plan inherits every one of those errors. Before you finish, re-open the actual source and confirm each concrete assertion in the lines you added or edited:
+A doc update copied from issue or plan prose inherits every contradiction between that prose and the shipped code, and ships those errors into the docs. Before you finish, re-open the actual source and confirm each concrete assertion in the lines you added or edited:
 
 - **File paths and class / method / function / CSS-class / route names** — `grep`/open the file and confirm the symbol exists, is spelled exactly as written, and lives where the doc says. If the doc claims "X is handled in `path/to/Foo`", open that file and find it before you write the sentence.
 - **Counts and lists** ("N config files", "the K screens that do Y", "approximately M templates") — re-derive every count from a `grep`/`ls`/`find` you actually ran, and propagate the corrected number to *every* place in the doc that repeats it (summary tables, ordered steps, prose). A stale count in one section while another is fixed is a classic half-edit.
