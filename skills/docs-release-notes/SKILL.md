@@ -21,13 +21,7 @@ description: Use when a change needs a user-visible release-note, changelog, or 
 .prflow/vendor/prflow/scripts/load-prompt-extension.sh docs-release-notes
 ```
 
-On a `command not found` / `No such file` / exit-127 reading (this repository's own local tier, where `.prflow/vendor/` is materialized only at runtime), re-invoke the same helper with the `.prflow/vendor/prflow/` prefix removed:
-
-```bash
-scripts/load-prompt-extension.sh docs-release-notes
-```
-
-If that too is not found (a non-Claude-Code runner where neither repo-relative path exists), fall back to the portable anchor form:
+On a `command not found` / `No such file` / exit-127 reading (this repository's own local tier, where `.prflow/vendor/` is materialized only at runtime), re-invoke the same helper with the `.prflow/vendor/prflow/` prefix removed (`scripts/load-prompt-extension.sh docs-release-notes`) as a single leading-token statement. If that too is not found (a non-Claude-Code runner where neither repo-relative path exists), fall back to the portable anchor form:
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh docs-release-notes
