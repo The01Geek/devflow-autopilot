@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1438",
+  "generated_at": "2026-08-08T04:47:23Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.41",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.003355000000001,
+    "tokens": {
+      "input_tokens": 46,
+      "output_tokens": 18980,
+      "cache_read_input_tokens": 2924408,
+      "cache_creation_input_tokens": 144303,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 187,
+        "outputTokens": 57606,
+        "cacheReadInputTokens": 5537530,
+        "cacheCreationInputTokens": 360379,
+        "webSearchRequests": 0,
+        "costUSD": 7.003355000000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 27,
+    "duration_ms": 605730
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"SKILL_DIR=${CLAUDE_SKILL_DIR:-unset}\"; ls skills/review/phases/",
+      "RUNID=\"${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"; echo \"run-id=$RUNID\"; mkdir -p .prflow/tmp/review/pr-1438/$RUNID; gh pr diff 1438 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1438/$RUNID/diff.patch | head -5; echo \"---DIFFSTAT---\"; gh pr diff 1438 --name-only",
+      "echo \"RUN_ID is [$GITHUB_RUN_ID] attempt [$GITHUB_RUN_ATTEMPT]\"",
+      "printf 'GITHUB_RUN_ID=%s\\n' \"$GITHUB_RUN_ID\"",
+      "for f in skills/docs-release-notes/SKILL.md skills/docs-sync-external/SKILL.md skills/docs-sync-internal/SKILL.md skills/pr-description/SKILL.md; do echo -n \"$f \"; sha256sum \"$f\" | cut -d' ' -f1; done",
+      "TMP=$(mktemp -d)\ncp -r skills \"$TMP/\"\ncp .prflow/tmp/review/pr-1438/run1/diff.patch \"$TMP/d.patch\"\ncd \"$TMP\"\n# apply only the skill hunks; use git apply with --include\ngit apply --include='skills/*' --directory=. d.patch 2>&1 | head\nsha256sum skills/docs-release-notes/SKILL.md skills/docs-sync-external/SKILL.md skills/docs-sync-internal/SKILL.md skills/pr-description/SKILL.md",
+      "TMP=$(mktemp -d); cp -r skills \"$TMP/skills\"; git apply --include=\"skills/*\" --directory=\"$TMP\" .prflow/tmp/review/pr-1438/run1/diff.patch; sha256sum \"$TMP\"/skills/docs-release-notes/SKILL.md \"$TMP\"/skills/docs-sync-external/SKILL.md \"$TMP\"/skills/docs-sync-internal/SKILL.md \"$TMP\"/skills/pr-description/SKILL.md",
+      "TMP=$(mktemp -d); cp -r skills \"$TMP/skills\"; git apply --include=\"skills/*\" --directory=\"$TMP\" .prflow/tmp/review/pr-1438/run1/diff.patch; sha256sum \"$TMP\"/skills/docs-release-notes/SKILL.md \"$TMP\"/skills/docs-sync-external/SKILL.md \"$TMP\"/skills/docs-sync-internal/SKILL.md \"$TMP\"/skills/pr-description/SKILL.md",
+      "mkdir -p .prflow/tmp/rev && cat > .prflow/tmp/rev/h.sh <<'EOF'\nTMP=$(mktemp -d)\ncp -r skills \"$TMP/skills\"\ngit apply --include=\"skills/*\" --directory=\"$TMP\" .prflow/tmp/review/pr-1438/run1/diff.patch\nsha256sum \"$TMP\"/skills/docs-release-notes/SKILL.md \"$TMP\"/skills/docs-sync-external/SKILL.md \"$TMP\"/skills/docs-sync-internal/SKILL.md \"$TMP\"/skills/pr-description/SKILL.md\nEOF\nbash .prflow/tmp/rev/h.sh",
+      "rm -rf /tmp/rev1438 && mkdir -p /tmp/rev1438 && cp -r skills /tmp/rev1438/skills && git apply --directory=/tmp/rev1438 -p1 .prflow/tmp/review/pr-1438/run1/diff.patch"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
