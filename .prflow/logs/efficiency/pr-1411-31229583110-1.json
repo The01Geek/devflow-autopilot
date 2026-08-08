@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1411",
+  "generated_at": "2026-08-08T00:20:35Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.34",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.711298,
+    "tokens": {
+      "input_tokens": 34,
+      "output_tokens": 13174,
+      "cache_read_input_tokens": 2028556,
+      "cache_creation_input_tokens": 136750,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 34,
+        "outputTokens": 13174,
+        "cacheReadInputTokens": 2028556,
+        "cacheCreationInputTokens": 136750,
+        "webSearchRequests": 0,
+        "costUSD": 2.711298,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 208918
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1",
+      "for f in skills/docs-release-notes/SKILL.md skills/docs-sync-external/SKILL.md skills/docs-sync-internal/SKILL.md; do\n  echo \"$f -> $(git hash-object -w --stdin < \"$f\" >/dev/null 2>&1; python3 -c \"import hashlib,sys;print(hashlib.sha256(open('$f','rb').read()).hexdigest())\")\"\ndone\necho \"=== manifest entries ===\"\ngrep -E 'docs-(release-notes|sync-external|sync-internal)/SKILL.md' scripts/devflow-cloud-writer-contract.json\necho \"=== docs-verify/docs-bootstrap-internal in manifest? ===\"\ngrep -E 'do …[per-command-truncated]"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
