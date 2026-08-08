@@ -4,6 +4,54 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.39] — 2026-08-08
+
+### Changed
+Bring the fix-loop references `loop-exit.md` and `loop-control.md` under the instruction-plus-consequence prose rule (#1419, PR #1429): remove rejected-design records, motivating-incident recounts, reviewer-misreading pre-emptions, and maintainer-retirement notes while keeping every instruction, prohibition, degraded arm, reason string, exact command, and JSON field name byte-identical.
+
+## [2.31.38] — 2026-08-08
+
+### Changed
+- **Compressed the rationale prose in `skills/retrospective-weekly/SKILL.md` for conformance with the instruction-plus-consequence prose rule.** Trimmed design-decision records, reviewer-misreading pre-emptions, and motivating-incident narration from the fenced `#` comments and body prose down to the instruction plus one consequence sentence, preserving every breadcrumb literal, degraded-arm reason string, exact command form, closed-set member, `# argjson-ok:` marker, and subagent-dispatch handoff. No behavioral change. (#1427)
+
+## [2.31.37] — 2026-08-08
+
+### Changed
+- **Compress `skills/implement/phases/phase-3-review.md` under the instruction-plus-consequence prose rule.** Removed the §3.3 epistemics essays, the thrice-stated `(post-merge)` refusal contract's re-voicings, and majority-comment fence prose, preserving every instruction, prohibition, degraded arm, routing token, exit code, command form, and closed-set enumeration. Editorial only — no behavior change. (#1430)
+
+### Fixed
+- **Namespace the `docs-*` cross-command references so a consumer can run what a stop arm names.** Six unnamespaced `/docs-*` command references across three `docs-*` skill bodies (`docs-bootstrap-internal`, `docs-sync-external`, `docs-bootstrap-external`) now use their `prflow:` form, so an agent following a Preflight stop arm reports a command that actually resolves in a consumer's checkout. (#1426)
+
+## [2.31.36] — 2026-08-08
+
+### Changed
+Remove the shipped skill surface's pointers to `.github/workflows/matcher-probe.yml`, and add a
+never-shipped-workflow forbidden class to `lib/test/lint-shipped-pruned-path.py` so the family
+cannot come back.
+
+A `skills/**` body is copied verbatim into a consumer repo while `devflow_copy_slice()` copies
+no `.github/` at all, so the pointer lines told a consumer to consult and re-run a workflow their
+repository does not contain. Those pointers are gone, with each paragraph's
+instruction restated inline. The new lint class derives the forbidden set at run time by
+word-list membership over the workflow copy loop and `DEVFLOW_WITHHELD_TIER` in `install.sh`, so
+a workflow the installer starts shipping leaves the set with no edit to the lint; an
+unestablished declaration refuses non-zero naming `install.sh` rather than auditing against an
+empty set.
+
+## [2.31.35] — 2026-08-08
+
+### Changed
+- **Five `docs-*` skills were brought into conformance with the instruction-plus-consequence prose
+  rule.** Rationale essays, maintainer notes, reviewer pre-emptions and incident archaeology were
+  removed from `docs-verify`, `docs-release-notes`, `docs-sync-internal`, `docs-sync-external` and
+  `docs-bootstrap-internal`, so every `/prflow:docs`, `/prflow:docs-sync-*`,
+  `/prflow:docs-bootstrap-internal`, `/prflow:docs-release-notes` and `/prflow:docs-verify` run spends less
+  of its context on commentary before it starts work. `docs-bootstrap-external` and `docs-verify`'s
+  write-mode reference already conformed and are unchanged, and `docs-bootstrap-internal`'s shell
+  comment explaining the zsh glob guard was deliberately left as it is. One behavior change ships
+  with the pass: `docs-bootstrap-internal` now tells the agent to leave its `.gitkeep` files in
+  place, where before it only described them as superseded. (#1411)
+
 ## [2.31.34] — 2026-08-08
 
 ### Fixed

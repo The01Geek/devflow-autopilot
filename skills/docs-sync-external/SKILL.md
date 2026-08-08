@@ -26,8 +26,8 @@ You are an **AI Documentation Alignment Agent**. Review **internal technical doc
 ## Preflight
 
 Check the documentation trees before doing anything:
-- If `[[INTERNAL_DOC_LOCATION]]` is empty or absent, there is no source of truth to align from — **stop** and report that internal docs should be created first (run `/docs-bootstrap-internal` or `/docs-sync-internal`).
-- If `[[EXTERNAL_DOC_LOCATION]]` is empty or absent, this is a first-time bootstrap, not an alignment — **defer to `/docs-bootstrap-external`** rather than aligning against nothing.
+- If `[[INTERNAL_DOC_LOCATION]]` is empty or absent, there is no source of truth to align from — **stop** and report that internal docs should be created first (run `/prflow:docs-bootstrap-internal` or `/prflow:docs-sync-internal`).
+- If `[[EXTERNAL_DOC_LOCATION]]` is empty or absent, this is a first-time bootstrap, not an alignment — **defer to `/prflow:docs-bootstrap-external`** rather than aligning against nothing.
 
 ## Execution Model
 
@@ -125,7 +125,7 @@ Only edit customer-facing files in `[[EXTERNAL_DOC_LOCATION]]` and its subdirect
 
 ## Style Guide
 
-This Style Guide is the single source for PRFlow's **customer-facing** style mechanics — AP style, the Oxford-comma rule, preferred word choices, and the formatting conventions below — because those serve a customer reader. The other two customer-facing skills (`skills/docs-bootstrap-external/SKILL.md` and `skills/docs-release-notes/SKILL.md`) point here rather than restating it. For the rules that are not audience-specific, follow the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md`; a failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
+This Style Guide is the single source for **customer-facing** style mechanics — AP style, the Oxford-comma rule, preferred word choices, and the formatting conventions below. For the rules that are not audience-specific, follow the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md`; a failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
 
 ### Tone and Voice
 - **Clear, straightforward, and informative**: Professional yet accessible

@@ -18,7 +18,7 @@ If the invocation fails because the helper path does not exist (`No such file`, 
 
 ## Objective
 
-You are an **AI Documentation Bootstrap Agent** for code repositories. Your task is to analyze the codebase and create a well-organized internal documentation directory structure with high-quality initial content. The directory structure you create will be used by `/docs-sync-internal` in future runs to maintain documentation as code changes.
+You are an **AI Documentation Bootstrap Agent** for code repositories. Your task is to analyze the codebase and create a well-organized internal documentation directory structure with high-quality initial content. The directory structure you create will be used by `/prflow:docs-sync-internal` in future runs to maintain documentation as code changes.
 
 **Primary goal:** Create a **domain-based categorization** through subdirectories — not a mirror of the code's directory structure.
 
@@ -46,7 +46,7 @@ Organize by **business domain and feature area**, not by technical layer.
 [[INTERNAL_DOC_LOCATION]]setup/
 ```
 
-Why: Developers look for docs about the *feature* they're working on ("how do orders work?"), not the *code layer* ("what's in the backend directory?"). A single feature like "orders" spans backend classes, frontend components, API endpoints, and database tables — its documentation should be in one place.
+Why: Developers look for docs about the *feature* they're working on ("how do orders work?"), not the *code layer* ("what's in the backend directory?"), so a feature's documentation belongs in one place even when it spans layers.
 
 ### Flat Directory Structure
 
@@ -55,7 +55,7 @@ Use **one level** of subdirectories under `[[INTERNAL_DOC_LOCATION]]`. No nestin
 **Wrong:** `[[INTERNAL_DOC_LOCATION]]integrations/payments/stripe/`
 **Right:** `[[INTERNAL_DOC_LOCATION]]integrations/` (with files like `payment-stripe.md`)
 
-Why: Flat structures are easier to navigate, easier for `/docs-sync-internal` to manage, and prevent category proliferation.
+Why: Flat structures are easier to navigate, easier for `/prflow:docs-sync-internal` to manage, and prevent category proliferation.
 
 ### Quality Over Quantity
 
@@ -146,7 +146,7 @@ Based on your analysis, create a categorization plan. Categories should be:
 
 **Domain-specific categories** (derived from your codebase analysis):
 
-These are the categories unique to this project's business domain. For an e-commerce platform, these might be `orders/`, `customers/`, `products/`, `shipping/`. For a CMS, these might be `content/`, `publishing/`, `media/`. Name them after what the *business* calls them, not what the *code* calls them.
+For an e-commerce platform, the categories might be `orders/`, `customers/`, `products/`, `shipping/`. For a CMS, these might be `content/`, `publishing/`, `media/`. Name them after what the *business* calls them, not what the *code* calls them.
 
 ### Step 4: Create the Directory Structure
 
@@ -156,7 +156,7 @@ mkdir -p [[INTERNAL_DOC_LOCATION]]/{category1,category2,category3,...}
 find [[INTERNAL_DOC_LOCATION]] -type d -empty -exec touch {}/.gitkeep \;
 ```
 
-The `.gitkeep` files will be automatically superseded as seed documents and future documentation are added to each directory.
+Leave the `.gitkeep` files in place, including in directories that later gain documents — nothing in this skill removes them.
 
 ### Step 5: Write Seed Documents
 
