@@ -159,6 +159,7 @@ literal:370c0e7f7fa4e9287a1f61a587d748ec04de5ca0ed327e83002f953508b70725	boundar
 literal:378f9ef81652be70ac8c24cd5f5095eeb15b32a2d70672b0f6f4c77339c2da23	boundary	maintainer adjudication: declared security or interface boundary
 literal:37a7e20f2c60964ec08566b1133e674a7dfe1e5d2efc1a89f29370818369fa40	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: withheld-offer config-unreadable reason is kept distinct from tier-disabled
 literal:3834fa8976fdbff39461e86063680dc654c2b70be6065d17f066552e0d279501	boundary	Retain executable/helper routing contract: Implement Phase 1 invokes the extracted dependency preflight with the current issue operand.
+literal:38bba24f5a328739f87b9ead9860ed8754e475abdf51d34b107c5855bc0c63a7	boundary	maintainer adjudication: review SL: stale-lint helper/sentinel boundary: #424 T11 engine arm(a) names provision_env as the precondition of the config bridge
 literal:38dd0ed36740fdffe2dcac17907090f95437d95c1101a27673614a772fb44de9	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:3978d38dd3e4aade96bd722b64fe712b39bc40b311bffe77ea2fc81442652345	boundary	Retain path-normalization boundary: lib/normalize-path.sh is the named source of the portable path-mapping rule.
 literal:39ad3945bd6e5a763b40568b9a4155d20f3bcf594d3a4090f0a7b3b1cc2cdde8	boundary	maintainer adjudication: review-and-fix AUDIT_TRAIL: Pins the fix-commit-fused workpad write.
@@ -177,7 +178,6 @@ literal:3dd348f6187810f0e2a81c2f2727ed50132a41c0f610fa0bfd5b4acc35fe1e1c	boundar
 literal:3df36d2a41114c7545c0510fe304337b3e950d5f285039eca7f45a12753ba5a9	boundary	maintainer adjudication: review BI: batch/filter/helper command boundary: #426 T1: Phase 1.1 authors the batch slice by awk-extracting ^diff --git sections from the cached diff
 literal:3e072e90fc6c3c9d6b8120db8044cd65af45f46eb83ad01bde6f023cc13632e8	boundary	maintainer adjudication: runtime cross-phase-contract: Prompt contract tells the review engine how API-derived CI conclusions discharge evidence.
 literal:3e121357d1f501b29e955a476e41d2009e4dae48d70ca254208c7d13ff9e58d0	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
-literal:3e34c79e5ff2cfd0f15c36583d0a4fd50643e473c313621d75a56e68e4739287	boundary	maintainer adjudication: review SL: stale-lint helper/sentinel boundary: #424 T11 engine arm(a) names provision_env as the precondition of the config bridge
 literal:3e69e808ae72359541055c64ace60eb7041c0873454d20b3179a84ec60f09a16	boundary	maintainer adjudication: declared security or interface boundary
 literal:3ea96a1a9f1367f1f2f774bab040ae8091536b9eb31ee2be0324ec0f096a7d7c	boundary	maintainer adjudication: declared security or interface boundary
 literal:3fdd923427870f3b3fff81bec1eff9f04006924aeeebdd301d77ce53c1b5fee8	boundary	maintainer adjudication: review-and-fix FIX_LOOP_CONTROL: Defines non-convergence handling for unreadable convergence guidance.
