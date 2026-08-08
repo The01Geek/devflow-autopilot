@@ -235,7 +235,16 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # re-asked for them and test_census_outer_memos_are_reused_across_builds went RED
 # with zero hits, exactly as its remedy text predicts. The bound is now 76: four
 # above the swept population, preserving a few files of headroom.
-_SOURCE_PARSE_CACHE_SIZE = 76
+#
+# Bound raise, issue #1402 (never-shipped-workflow forbidden class). The class's
+# refusal arms need their own installer fixtures, which add eight tracked shell
+# sources under lib/test/fixtures/shipped-pruned-path/installs/, taking the swept
+# population from 71 to 79 — past the old bound of 76, so entries were evicted
+# before extraction re-asked for them and
+# test_census_outer_memos_are_reused_across_builds went RED with zero hits on
+# _definition_scan, exactly as its remedy text predicts. The bound is now 84: five
+# above the swept population, the same few-files headroom the raises above kept.
+_SOURCE_PARSE_CACHE_SIZE = 84
 
 
 @functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
