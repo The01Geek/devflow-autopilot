@@ -1,0 +1,261 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-08T00:00:00Z",
+  "fix_commit_sha": "3483b8008",
+  "fix_files": [
+    "lib/test/run.sh",
+    "lib/test/lint-shipped-pruned-path.py",
+    "lib/test/fixtures/shipped-pruned-path/installs/quoted-loop.sh",
+    "skills/implement/phases/phase-1-setup.md",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Critical",
+      "description": "the #1402 live shipped-surface gate passed established[0] (a string) to _never_shipped_matcher, degenerating the pattern to single-character stems and disabling the gate",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          49894,
+          49900
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 4,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "phase-1-setup Pass 2 stated a helper-membership policy the fence gave no mechanism to evaluate",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          647,
+          670
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "no RED-proof that the live gate can still fail (no negative control)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          49918,
+          49919
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "the live gate has no audited-population floor — an is_audited filter selecting zero paths is byte-identical to a clean result",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          49914,
+          49932
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "the family verdict consulted FAMILY_UNREADABLE only on the no-hits branch, so a mixed family reported as read",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          664,
+          671
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "run.sh #1423 DECISION comment self-contradicted and cited a non-colocated count",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          49277,
+          49281
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_literal_words docstring justified the whitespace re-split with a producer the diff removed",
+      "defect_signature": {
+        "file": "lib/test/lint-shipped-pruned-path.py",
+        "line_range": [
+          85,
+          92
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "grep rc 2 conflated with rc 1 in the Pass 2 fence",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          658,
+          659
+        ],
+        "kind": "unhandled_exception"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 11,
+    "fix_diff_lines": 118,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "2026-08-08T00:00:00Z",
+    "reviewed_sha": "20562a04c",
+    "verdict": "REJECT-then-fixed",
+    "coverage": "not_verified",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "reason": "a bounded shadow roster was dispatched (2 of the 4 always-on agents); comment-analyzer and the requesting-code-review final pass were not run, so the roster measurement is not_verified and no clean APPROVE is available",
+    "phase3_findings": [
+      {
+        "agent": "prflow:code-reviewer",
+        "severity": "Important",
+        "description": "the quoted-operand fixture and the retained whitespace re-split pinned INVERTED shell semantics — one quoted token is one loop iteration, so neither member is installed and both must stay forbidden",
+        "defect_signature": {
+          "file": "lib/test/fixtures/shipped-pruned-path/installs/quoted-loop.sh",
+          "line_range": [
+            4,
+            12
+          ],
+          "kind": "documented_falsehood"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:silent-failure-hunter",
+        "severity": "Critical",
+        "description": "every grep failure except rc 2 folded into a clean scanned-nothing-found claim (rc 126/127/other)",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            655,
+            674
+          ],
+          "kind": "logic_error"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "$? read across a && list, so the unreadable arm was one edit away from inert",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            658,
+            662
+          ],
+          "kind": "api_misuse"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "a .yaml-only family misattributed as unlistable",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            655,
+            665
+          ],
+          "kind": "logic_error"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "the three withheld-tier fixtures are three copies of one negative control",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            49786,
+            49809
+          ],
+          "kind": "test_gap"
+        },
+        "fix_decision": "pushed_back"
+      }
+    ],
+    "promoted_to_iter_next": false
+  },
+  "verification_evidence": {
+    "result": "pass",
+    "command": "lib/test/run-parallel.sh",
+    "tallies": {
+      "passed": 17982,
+      "failed": 0,
+      "skipped": 0
+    },
+    "exit_status": 0,
+    "skipped_checks": [],
+    "focused_selection": "the #1402 surface is lib/test/run.sh-resident (coverage-map owner: unmodularized), so the monolith shard and the recombined whole-suite coordinator were the targets; lib/test/run-module.sh harness-python-guards covered the pin-corpus adjudication rekey"
+  },
+  "synthesized": false,
+  "telemetry": "unavailable"
+}
