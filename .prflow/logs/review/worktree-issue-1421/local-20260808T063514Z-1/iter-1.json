@@ -1,0 +1,436 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-08T06:35:14Z",
+  "fix_commit_sha": "0d7a6e30c66001b4cd3122c705b1b79001d33a63",
+  "fix_files": [
+    ".changeset/issue-1421-compress-fix-loop-bundle.md",
+    "scripts/devflow-cloud-writer-contract.json",
+    "skills/review-and-fix/SKILL.md",
+    "skills/review-and-fix/references/pre-fix-gates.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "category": "issue_acceptance",
+      "claim": "AC1 meaning-preservation across the compression",
+      "file": "skills/review-and-fix/references/fix-delta-gate.md",
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:fix-delta-gate.md:no-semantic-loss-in-compression",
+      "verdict": "PASS",
+      "evidence": "clause-level adjudication of every removal; all enum values, thresholds, failure-map rows and JSON field names survive"
+    },
+    {
+      "id": "VC-2",
+      "category": "issue_acceptance",
+      "claim": "AC2 no surviving defensive-why; one consequence sentence per instruction",
+      "file": "skills/review-and-fix/SKILL.md",
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:SKILL.md:no-defensive-why-remains",
+      "verdict": "PASS",
+      "raw_verdict": "FAIL",
+      "normalized": true,
+      "evidence": "one of the two reported instances was fixed (the backstop rider was later restored as operative on Phase-3 corroboration); the span-defence instance was pushed back — one consequence sentence is what the rule permits"
+    },
+    {
+      "id": "VC-3",
+      "category": "issue_acceptance",
+      "claim": "AC3 every remaining pointer ships",
+      "file": "skills/review-and-fix/references/fix-delta-gate.md",
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:SKILL.md:pointers-resolve-to-shipped-artifacts",
+      "verdict": "PASS",
+      "raw_verdict": "FAIL",
+      "normalized": true,
+      "evidence": "the fix-delta-gate CLAUDE.md pointer was restated inline; grep over all three files returns zero CLAUDE.md / docs / workflow-run-id pointers"
+    },
+    {
+      "id": "VC-4",
+      "category": "issue_acceptance",
+      "claim": "AC4 ### Schema fence byte-identical",
+      "file": "skills/review-and-fix/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "issue_acceptance:SKILL.md:schema-fence-byte-identical",
+      "verdict": "PASS",
+      "evidence": "cmp of the sed-sliced fence against origin/main: identical, 213 lines"
+    },
+    {
+      "id": "VC-5",
+      "category": "issue_acceptance",
+      "claim": "AC5 both load-prompt-extension.sh call sites intact and ordered",
+      "file": "skills/review-and-fix/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "issue_acceptance:SKILL.md:two-extension-call-sites-intact",
+      "verdict": "PASS",
+      "evidence": "vendored literals at 43 and 63, anchor fallbacks at 49 and 69, ## Engine source of truth at 77; lint-anchor-fallback-arm.py rc 0"
+    },
+    {
+      "id": "VC-6",
+      "category": "issue_acceptance",
+      "claim": "AC6 every lib/test pinned literal byte-identical",
+      "file": "skills/review-and-fix/references/fix-delta-gate.md",
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:fix-delta-gate.md:pinned-literals-byte-identical",
+      "verdict": "PASS",
+      "evidence": "pin tripwire over 39955 literals unchanged; Dispatch barrier x1 per reference; six-shape set x1; run-module review-and-fix-contract 39/0, create-issue-contract 285/0, review-stall-backstop 459/0, efficiency-trace-telemetry 938/0"
+    },
+    {
+      "id": "VC-7",
+      "category": "issue_acceptance",
+      "claim": "AC7 reference boundary markers intact",
+      "file": "skills/review-and-fix/references/pre-fix-gates.md",
+      "verification_mode": "lite",
+      "claim_signature": "issue_acceptance:pre-fix-gates.md:boundary-markers-intact",
+      "verdict": "PASS",
+      "evidence": "one # Reference: first line and one END marker last line per reference"
+    },
+    {
+      "id": "VC-8",
+      "category": "issue_acceptance",
+      "claim": "AC8 manifest records post-change SHA-256",
+      "file": "scripts/devflow-cloud-writer-contract.json",
+      "verification_mode": "lite",
+      "claim_signature": "issue_acceptance:devflow-cloud-writer-contract.json:sha256-regenerated",
+      "verdict": "PASS",
+      "evidence": "recomputed sha256 of all three files matches the manifest; regenerated in the same commit as each prose edit"
+    },
+    {
+      "id": "VC-9",
+      "category": "issue_acceptance",
+      "claim": "AC9 no test, pin, or citation token added",
+      "file": "skills/review-and-fix/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "issue_acceptance:SKILL.md:no-tests-pins-or-number-tokens-added",
+      "verdict": "PASS",
+      "evidence": "grep for #\\d+ / AC\\d+ over the three files returns nothing; lint-shipped-pruned-path.py rc 0"
+    },
+    {
+      "id": "VC-10",
+      "category": "issue_acceptance",
+      "claim": "AC10 run-parallel.sh clean aggregate",
+      "file": "skills/review-and-fix/SKILL.md",
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:run-parallel.sh:clean-aggregate-on-final-tree",
+      "verdict": "PASS",
+      "evidence": "17981 passed, 0 failed, aggregate CLEAN, exit 0 over the full 5-shard partition — re-verified at Phase 4.3 on the final tree"
+    },
+    {
+      "id": "VC-11",
+      "category": "absolute_claim",
+      "claim": "termination guarantee still holds for every check after the universal sentence was removed",
+      "file": "skills/review-and-fix/references/fix-delta-gate.md",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:fix-delta-gate.md:termination-guarantee-every-check",
+      "verdict": "PASS",
+      "evidence": "the concrete routing text at line 24 states the cap case directly; the removed sentence was a summary of it"
+    },
+    {
+      "id": "VC-12",
+      "category": "absolute_claim",
+      "claim": "distinct reason breadcrumbs still required for every not_verified arm",
+      "file": "skills/review-and-fix/references/fix-delta-gate.md",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:fix-delta-gate.md:distinct-reason-breadcrumbs-preserved",
+      "verdict": "PASS",
+      "evidence": "all three arms enumerated with distinct texts; the must-preserve-the-distinction sentence survives verbatim"
+    },
+    {
+      "id": "VC-13",
+      "category": "data_format_assumption",
+      "claim": "step25_classification enum and the condition (c) operand survive",
+      "file": "skills/review-and-fix/references/pre-fix-gates.md",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:pre-fix-gates.md:step25-classification-enum-preserved",
+      "verdict": "PASS",
+      "evidence": "enum at SKILL.md:140; condition (c) operand at shadow-review.md:207; the tools_unavailable record at pre-fix-gates.md:32"
+    },
+    {
+      "id": "VC-14",
+      "category": "dependency_interaction",
+      "claim": "the removed Maintainer rule paragraph orphans no pin or cross-file reference",
+      "file": "skills/review-and-fix/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "dependency_interaction:SKILL.md:maintainer-rule-removal-no-orphan",
+      "verdict": "PASS",
+      "evidence": "grep over lib/test/ and skills/ for 'Maintainer rule' / 'Engine changes belong' returns nothing"
+    },
+    {
+      "id": "VC-15",
+      "category": "api_contract",
+      "claim": "changeset uses the bump: patch frontmatter form",
+      "file": ".changeset/issue-1421-compress-fix-loop-bundle.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:issue-1421-compress-fix-loop-bundle.md:bump-frontmatter-form",
+      "verdict": "PASS",
+      "evidence": "line 2 reads bump: patch"
+    }
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "Deleting pre-fix-gates.md's registration-rationale sentence orphaned a verbatim cross-file quote in references/shadow-review.md's Overlap rule.",
+      "defect_signature": {
+        "file": "skills/review-and-fix/references/pre-fix-gates.md",
+        "line_range": [
+          44,
+          44
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "The changeset undercounts the non-shipping pointers ('the one pointer') and claims every instruction is preserved unchanged while the diff removes the maintainer-routing note.",
+      "defect_signature": {
+        "file": ".changeset/issue-1421-compress-fix-loop-bundle.md",
+        "line_range": [
+          5,
+          5
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "The synthesis-backstop sentence lost the 'never license to skip it' anti-reliance rider.",
+      "defect_signature": {
+        "file": "skills/review-and-fix/SKILL.md",
+        "line_range": [
+          306,
+          306
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "SKILL.md:21 dropped the precedence clause between the Denied-shapes list and the tier-agnostic fallback arm.",
+      "defect_signature": {
+        "file": "skills/review-and-fix/SKILL.md",
+        "line_range": [
+          21,
+          24
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The Write-tool-vs-redirect ban lost the parenthetical reconciling it with the permitted in-workspace redirect shape.",
+      "defect_signature": {
+        "file": "skills/review-and-fix/SKILL.md",
+        "line_range": [
+          306,
+          306
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "Two minor cross-reference losses: the entry-gate's vendored-layout parenthetical and pre-fix-gates.md:32's link from tools_unavailable to condition (c).",
+      "defect_signature": {
+        "file": "skills/review-and-fix/references/pre-fix-gates.md",
+        "line_range": [
+          32,
+          32
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "0d7a6e30c66001b4cd3122c705b1b79001d33a63"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "0d7a6e30c66001b4cd3122c705b1b79001d33a63"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "0d7a6e30c66001b4cd3122c705b1b79001d33a63"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "pushed_back",
+      "source_file": "skills/review-and-fix/SKILL.md",
+      "claim_text": "the dropped precedence clause leaves the Denied-shapes list and the tier-agnostic fallback arm unreconciled",
+      "skip_category": "claim-quality",
+      "evidence": "the reporting agent graded it a Suggestion and stated its own refutation: the retained enumeration names the tier-agnostic invocation procedure as one of the three rules this section is additive to, and the Denied bullet bans the UNEXPANDED anchor while the fallback arm resolves the anchor inline — so the two instructions do not in fact conflict",
+      "parking_evidence": {
+        "basis": "the reported conflict does not exist: the Denied bullet's scope word 'unexpanded' and the fallback arm's inline resolution are disjoint",
+        "failing_input": "a runner where neither repo-relative helper path exists, taking the anchor fallback arm",
+        "source": "skills/review-and-fix/SKILL.md lines 21-24 and 46",
+        "finding_ref": {
+          "iter": 1,
+          "index": 3
+        }
+      }
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "pushed_back",
+      "source_file": "skills/review-and-fix/SKILL.md",
+      "claim_text": "the Write-tool ban reads as unreconciled with the permitted in-workspace redirect shape",
+      "skip_category": "claim-quality",
+      "evidence": "the reporting agent stated its own refutation — the removed parenthetical was pre-empting a misreading and the ban is still explicit, so the text is not false; restating it would re-add exactly the class this change removes",
+      "parking_evidence": {
+        "basis": "the removed text is the reviewer-misreading pre-empt the prose rule names, and the ban it qualified survives verbatim",
+        "failing_input": "a reader comparing the Permitted-shapes list against the loop's own Write-tool mandate",
+        "source": "skills/review-and-fix/SKILL.md line 306 and the Cloud command-shape discipline section",
+        "finding_ref": {
+          "iter": 1,
+          "index": 4
+        }
+      }
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "pushed_back",
+      "source_file": "skills/review-and-fix/references/pre-fix-gates.md",
+      "claim_text": "two minor cross-reference losses leave links reconstructible rather than stated",
+      "skip_category": "claim-quality",
+      "evidence": "the reporting agent confirmed both operands survive and the links are reconstructible; VC-13's verifier independently confirmed condition (c) still has a stated operand at shadow-review.md:207, so nothing is orphaned",
+      "parking_evidence": {
+        "basis": "both referents survive at their owning sites, so neither removal orphans a claim",
+        "failing_input": "an agent reading pre-fix-gates.md:32 and needing condition (c)'s operand",
+        "source": "skills/review-and-fix/references/shadow-review.md:207 and skills/review-and-fix/SKILL.md:140",
+        "finding_ref": {
+          "iter": 1,
+          "index": 5
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 8,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "verification_evidence": {
+    "focused_selection": "run-module review-and-fix-contract (39/0), create-issue-contract (285/0), review-stall-backstop (459/0), efficiency-trace-telemetry (938/0); whole-suite obligation owned by /prflow:implement Phase 4.3"
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 40
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2
+    },
+    "phase_1": {
+      "calls": 1,
+      "tokens": 94678,
+      "wall_clock_s": 76
+    },
+    "phase_1_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 3,
+      "tokens": 257618,
+      "wall_clock_s": 110
+    },
+    "phase_3": {
+      "calls": 4,
+      "tokens": 416505,
+      "wall_clock_s": 1672
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2,
+      "webfetches": 0
+    },
+    "step_2_6": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    }
+  },
+  "synthesized": false
+}
