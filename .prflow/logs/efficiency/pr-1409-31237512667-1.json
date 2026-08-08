@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1409",
+  "generated_at": "2026-08-08T03:43:08Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.39",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.079442249999999,
+    "tokens": {
+      "input_tokens": 48,
+      "output_tokens": 20489,
+      "cache_read_input_tokens": 3217647,
+      "cache_creation_input_tokens": 164008,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 172,
+        "outputTokens": 39337,
+        "cacheReadInputTokens": 5261442,
+        "cacheCreationInputTokens": 455905,
+        "webSearchRequests": 0,
+        "costUSD": 7.079442249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 30,
+    "duration_ms": 421789
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-unset}\"; echo \"PR=1409\"; git rev-parse --show-toplevel",
+      "printf 'CLAUDE_SKILL_DIR=[%s]\\n' \"$CLAUDE_SKILL_DIR\"; git rev-parse --show-toplevel; git rev-parse HEAD",
+      "RUN_ID=\"${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}\"; echo \"RUN_ID=$RUN_ID\"",
+      "date -u +%Y%m%dT%H%M%SZ; echo \"GITHUB_RUN_ID below:\"; printenv GITHUB_RUN_ID || echo \"(unset)\"; printenv GITHUB_RUN_ATTEMPT || echo \"(unset)\"",
+      "H=d2eee2d1aea64683e20e908e232e0f65c5d2934e\necho \"=== surviving 'SKILL.md Phase 4.1.5' in changed docs at PR head ===\"\ngit show $H:docs/internal/shadow-review.md | grep -n 'SKILL.md Phase 4.1.5' || echo \"(none in shadow-review.md)\"\ngit show $H:docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md | grep -n 'SKILL.md Phase 4.1.5\\|line_range' || echo \"(none in overview)\"\necho \"=== shadow-review.md (docs) 4.1.5 lines at PR head ===\"\ngit show $H:docs/internal/shadow-review.md | grep -n '4\\.1\\.5' | grep -v 'phase- …[per-command-truncated]",
+      "for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/shadow-review.md docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md docs/internal/shadow-review.md docs/internal/review-agent-overrides.md docs/external/release-notes.md; do echo \"=== $f ===\"; git show d2eee2d1aea64683e20e908e232e0f65c5d2934e:$f | grep -nE \"review/SKILL.md.*(Phase 4.1.5|Phase 3\\.2|Phase 3\\.1)|SKILL\\.md Phase 4\\.1\\.5|:review. SKILL|:review's SKILL\" ; done",
+      "cd /home/runner/work/prflow/prflow\nHEAD=d2eee2d1aea64683e20e908e232e0f65c5d2934e\necho \"=== phase-4-verdict.md §4.1.5 presence ===\"\ngit show $HEAD:skills/review/phases/phase-4-verdict.md | grep -nE \"4\\.1\\.5|Over-grade|shape\" | head -30\necho \"=== phase-3-agents.md Phase 3.2 presence ===\"\ngit show $HEAD:skills/review/phases/phase-3-agents.md | grep -nE \"3\\.2|defect_signature|overlap|line_range|corrobor\" | head -40",
+      "cd /home/runner/work/prflow/prflow; HEAD=d2eee2d1aea64683e20e908e232e0f65c5d2934e; git show \"$HEAD:skills/review/phases/phase-4-verdict.md\" | grep -nE \"4\\.1\\.5|Over-grade|shape 1|shape 2|shape 3|fail-direction|fails open|fails closed\" | head -40",
+      "for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/shadow-review.md; do echo -n \"$f \"; git show d2eee2d1aea64683e20e908e232e0f65c5d2934e:$f | sha256sum | cut -d' ' -f1; done",
+      "cd /home/runner/work/prflow/prflow; git reset -q HEAD . ; git checkout -q -- . ; git status --porcelain | head; echo \"restored\""
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
