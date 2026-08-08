@@ -41,18 +41,15 @@ substring on dozens of unrelated lines, and a comment or a `--help` block naming
 workflow would read as a declaration of it. An unestablished or ambiguous declaration
 refuses non-zero naming `install.sh` and audits nothing.
 
-`DEVFLOW_WITHHELD_TIER` is parsed by `parse_withheld_tier_names()` and deliberately does
-**not** count as shipped (issue #1423). It names workflows a repo that installed before
-the tier was withheld still carries; a *fresh* consumer's install copies none of them, so
-a shipped body naming one points at a file that population does not have. That is exactly
-what this class exists to report, and the withheld names are therefore forbidden like any
-other never-shipped name — the parse survives because its refusals detect a change in
-`install.sh`'s own taxonomy, and because a withheld-tier hit earns a distinct diagnostic
-clause naming the pre-withdrawal population.
+`DEVFLOW_WITHHELD_TIER` is **not read here at all** (issue #1423). It names workflows only a
+repo that installed before the tier was withheld still carries, so counting them as shipped
+told a *fresh* consumer that a file they do not have resolves — the very thing this class
+exists to report. Its members are therefore forbidden like any other never-shipped name,
+and the declaration has one reader again: `install.sh`'s own removal machinery.
 
-The withheld tier needs no per-name carve-out to keep a *deleted* workflow out of the set:
-the derivation intersects with what is actually **tracked**, so a name the tree no longer
-carries can never enter the forbidden set however it is declared.
+A withheld name that has also left the tree needs no carve-out: the derivation intersects
+with what is actually **tracked**, so a workflow the tree no longer carries can never enter
+the forbidden set however it is declared.
 
 Disclosed residuals, none closed here:
 
@@ -426,20 +423,14 @@ def parse_docs_defaults(schema_bytes: bytes) -> set[str]:
 #: silently missed — the same derive-don't-transcribe posture `_staging_variable` takes.
 _COPY_LOOP = re.compile(r"^\s*for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+?)\s*;\s*do\s*$")
 
-#: The withheld-tier declaration. The right-hand side is captured whole and tokenized by
-#: `shlex`, so its quoting model is the one `parse_prune_targets` already uses.
-_WITHHELD_TIER = re.compile(r"^\s*DEVFLOW_WITHHELD_TIER=(.*)$")
-
-
 def _literal_words(operands: str) -> list[str]:
     """Tokenize a shell operand list into the literal words it declares.
 
-    `shlex` removes the quoting; the whitespace re-split is what turns a QUOTED word list
-    — `DEVFLOW_WITHHELD_TIER="a b c"`, which shlex yields as one token — back into its
-    members, and it leaves an already-unquoted `for w in a b` unchanged. A `$`-carrying
-    word is a variable this parser cannot resolve, so it contributes no name rather than
-    contributing its own literal text. Shared by both installer-declaration parsers, so
-    their quoting model cannot drift apart.
+    `shlex` removes the quoting; the whitespace re-split is what turns a QUOTED word list,
+    which shlex yields as one token, back into its members, and it leaves an
+    already-unquoted `for w in a b` unchanged. A `$`-carrying word is a variable this
+    parser cannot resolve, so it contributes no name rather than contributing its own
+    literal text.
     """
     try:
         tokens = shlex.split(operands, comments=True, posix=True)
@@ -448,53 +439,12 @@ def _literal_words(operands: str) -> list[str]:
     return [word for token in tokens for word in token.split() if "$" not in word]
 
 
-def parse_withheld_tier_names(install_text: str) -> set[str]:
-    """Return the workflow stems `install.sh` declares as the withheld tier.
-
-    These are **not** shipped names (issue #1423) — a fresh install copies none of them,
-    and only a repo that installed before the tier was withheld still carries one. The set
-    is read for two purposes: its refusals detect a change in `install.sh`'s own workflow
-    taxonomy that the shipped-set parse alone would not see, and a never-shipped finding
-    whose stem is a member earns a diagnostic clause naming that pre-withdrawal
-    population, which is different advice from a plugin-internal name no consumer ever has.
-
-    The assignment is not read by first match: a second one **refuses** naming both line
-    numbers, because a later reassignment would otherwise silently redefine the tier.
-
-    Raises `NeverShippedParseError` when the declaration is absent, duplicated, or
-    declares no literal word.
-    """
-    lines = install_text.split("\n")
-    matches = [
-        (number, line)
-        for number, line in enumerate(lines, 1)
-        if _WITHHELD_TIER.match(line)
-    ]
-    if not matches:
-        raise NeverShippedParseError("no DEVFLOW_WITHHELD_TIER assignment found")
-    if len(matches) > 1:
-        raise NeverShippedParseError(
-            "more than one DEVFLOW_WITHHELD_TIER assignment, at lines "
-            + ", ".join(str(number) for number, _ in matches)
-            + " — cannot establish which one declares the withheld tier"
-        )
-    words = _literal_words(_WITHHELD_TIER.match(matches[0][1]).group(1))
-    if not words:
-        raise NeverShippedParseError(
-            "the DEVFLOW_WITHHELD_TIER assignment declares no literal workflow name"
-        )
-    return set(words)
-
-
 def parse_shipped_workflow_names(install_text: str) -> set[str]:
     """Return the workflow stems `install.sh` copies into a consumer's checkout.
 
     The set is the copy-loop operand list alone — the one declaration that *puts* a
-    workflow in a consumer's `.github/workflows/`. `DEVFLOW_WITHHELD_TIER` is a second
-    declaration about workflow names, but it ships nothing: its members exist only in a
-    repo that installed before the tier was withheld, so counting them here would tell a
-    *fresh* consumer that a file they do not have resolves (issue #1423).
-    `parse_withheld_tier_names` reads that declaration separately.
+    workflow in a consumer's `.github/workflows/`. `DEVFLOW_WITHHELD_TIER` is not read; the
+    module docstring's never-shipped section states why (issue #1423).
 
     The copy loop is identified by two properties together, never by the loop variable's
     name: its **body** names `.github/workflows/$<var>.yml`, and its **operand list holds
@@ -815,15 +765,11 @@ def _never_shipped_matcher(basenames: list[str]):
 
 def _establish_never_shipped(
     install_source: Path, workflows_source: Path
-) -> tuple[list[str], set[str]] | None:
-    """Return `(never_shipped_basenames, withheld_tier_names)`, or None having printed
-    the refusal (#1402).
+) -> list[str] | None:
+    """Return the never-shipped basenames, or None having printed the refusal (#1402).
 
     The two call sites — the print flag and the audit path — must refuse on identical
     terms, so the read, the parse and the diagnostic live here rather than at either.
-    The withheld-tier names ride along because the audit path uses them to pick the
-    finding's diagnostic clause (issue #1423); both parses refuse on the same terms, so a
-    caller that ignores the second member still gets every fail-closed arm.
     """
     try:
         install_text = install_source.read_text(encoding="utf-8", errors="replace")
@@ -835,12 +781,8 @@ def _establish_never_shipped(
         )
         return None
     try:
-        withheld = parse_withheld_tier_names(install_text)
-        return (
-            derive_never_shipped_basenames(
-                workflows_source, parse_shipped_workflow_names(install_text)
-            ),
-            withheld,
+        return derive_never_shipped_basenames(
+            workflows_source, parse_shipped_workflow_names(install_text)
         )
     except NeverShippedParseError as exc:
         print(
@@ -943,10 +885,10 @@ def main(argv: list[str] | None = None) -> int:
     # consults. The two older print flags keep their position, so their behaviour is
     # unchanged.
     if args.print_never_shipped_set:
-        established = _establish_never_shipped(install_source, workflows_source)
-        if established is None:
+        never_shipped = _establish_never_shipped(install_source, workflows_source)
+        if never_shipped is None:
             return 1
-        for basename in established[0]:
+        for basename in never_shipped:
             print(basename)
         return 0
 
@@ -1029,10 +971,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Derive the never-shipped workflow set (issue #1402), before the enumeration below
     # so an unestablished declaration refuses without auditing a single file.
-    established = _establish_never_shipped(install_source, workflows_source)
-    if established is None:
+    never_shipped = _establish_never_shipped(install_source, workflows_source)
+    if never_shipped is None:
         return 1
-    never_shipped, withheld_tier = established
     never_shipped_matcher = _never_shipped_matcher(never_shipped)
 
     try:
@@ -1106,21 +1047,11 @@ def main(argv: list[str] | None = None) -> int:
                 "acceptance-criterion reference) with no pruned-path-ok marker"
             )
         for number, workflow in _scan(text, never_shipped_matcher):
-            # The withheld-tier clause is the actionable difference: that file may sit in
-            # a repo that installed before the tier was withheld, so the reader needs to
-            # know the sentence is true only for that population — a plugin-internal name
-            # is in no consumer's checkout at all (issue #1423).
-            provenance = (
-                "PRFlow's own withheld tier, which the installer copies into no consumer "
-                "and only a repo that installed before the tier was withheld still "
-                "carries, so a fresh consumer has no such file"
-                if workflow[: -len(".yml")] in withheld_tier
-                else "PRFlow's own, which the installer copies into no consumer, so this "
-                "cannot point at a file the installer put there"
-            )
             findings.append(
                 f"{relative}:{number}: references never-shipped workflow '{workflow}' "
-                f"({provenance}) with no pruned-path-ok marker"
+                "(PRFlow's own, which the installer copies into no consumer, so this "
+                "cannot point at a file the installer put there) with no "
+                "pruned-path-ok marker"
             )
         # The CLAUDE.md-token ban applies only inside the derived vendored-skill dirs
         # (issue #1401): every other skills/**+agents/** file may name CLAUDE.md as the

@@ -49762,12 +49762,6 @@ sp_neverset() {  # <install> <workflows> — shares sp_printset's encoder (no dr
 assert_eq "#1402 lint: the derived never-shipped set is the workflow-source complement of the copy loop" \
   "rc=0|alpha beta internal-only probe" \
   "$(sp_neverset "$SP_INSTALL_FX" "$SP_WORKFLOWS_FX")"
-# Issue #1423: the DECISION, pinned at the derivation. The fixture's withheld tier is
-# `alpha beta`; both are in the complement above, because DEVFLOW_WITHHELD_TIER ships
-# nothing — only the copy loop puts a workflow in a FRESH consumer's checkout. Re-unioning
-# the withheld names into the shipped set drops `alpha beta` and turns this RED.
-assert_eq "#1402/#1423 lint: a withheld-tier name is NOT shipped and stays in the forbidden set" "yes" \
-  "$(case "$(sp_neverset "$SP_INSTALL_FX" "$SP_WORKFLOWS_FX")" in *"alpha"*) case "$(sp_neverset "$SP_INSTALL_FX" "$SP_WORKFLOWS_FX")" in *"beta"*) echo yes ;; *) echo no ;; esac ;; *) echo no ;; esac)"
 # Membership is over PARSED WORD LISTS, never a substring search. The decoy fixture carries
 # `probe` and `alpha` as substrings of unrelated lines, including prose that REMOVES the probe
 # tier — under a substring test both would read as shipped and drop out of the forbidden set.
@@ -49780,10 +49774,17 @@ assert_eq "#1402 lint fail-closed: no loop naming a workflow path refuses, namin
   "$(case "$(sp_neverset "$SP_FX/installs/no-copy-loop.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"no-copy-loop.sh"*"no workflow copy loop found"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#1402 lint fail-closed: a variable-only candidate loop refuses, naming install.sh" "yes" \
   "$(case "$(sp_neverset "$SP_FX/installs/variable-only-loop.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"variable-only-loop.sh"*"declares a literal workflow name"*) echo yes ;; *) echo no ;; esac)"
-assert_eq "#1402 lint fail-closed: an absent DEVFLOW_WITHHELD_TIER refuses, naming install.sh" "yes" \
-  "$(case "$(sp_neverset "$SP_FX/installs/no-withheld.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"no-withheld.sh"*"no DEVFLOW_WITHHELD_TIER assignment found"*) echo yes ;; *) echo no ;; esac)"
-assert_eq "#1402 lint fail-closed: an empty DEVFLOW_WITHHELD_TIER refuses, naming install.sh" "yes" \
-  "$(case "$(sp_neverset "$SP_FX/installs/empty-withheld.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"empty-withheld.sh"*"declares no literal workflow name"*) echo yes ;; *) echo no ;; esac)"
+# Issue #1423: the DECISION, pinned at the derivation. The withheld tier ships nothing, so
+# the lint does not read DEVFLOW_WITHHELD_TIER at all and its members stay forbidden. Both
+# fixtures declare a withheld tier the shipped set must ignore — `no-withheld.sh` declares
+# none and `empty-withheld.sh` declares an empty one, and each still derives the copy-loop
+# complement rather than refusing. Re-reading the declaration turns all three RED.
+assert_eq "#1402/#1423 lint: an absent DEVFLOW_WITHHELD_TIER does not refuse (the lint does not read it)" \
+  "rc=0|alpha beta internal-only probe" \
+  "$(sp_neverset "$SP_FX/installs/no-withheld.sh" "$SP_WORKFLOWS_FX")"
+assert_eq "#1402/#1423 lint: an empty DEVFLOW_WITHHELD_TIER does not refuse (the lint does not read it)" \
+  "rc=0|alpha beta internal-only probe" \
+  "$(sp_neverset "$SP_FX/installs/empty-withheld.sh" "$SP_WORKFLOWS_FX")"
 # The print flag exits before the slice and schema reads, so a query about the workflow set
 # cannot be refused by — or misdiagnosed against — a source it never consults.
 assert_eq "#1402 lint: --print-never-shipped-set is independent of the slice and schema sources" \
@@ -49791,12 +49792,12 @@ assert_eq "#1402 lint: --print-never-shipped-set is independent of the slice and
   "$(cd "$LIB/.." && sp_encode --print-never-shipped-set --slice-source /dev/null --schema-source /dev/null)"
 # Selection collects every candidate before choosing, so ambiguity refuses rather than
 # resolving by position. Both conjuncts say nothing about a loop's DIRECTION — the fixture's
-# removal loop over literal workflow names satisfies them and would invert the shipped set —
-# and a later reassignment would silently redefine the withheld tier.
+# removal loop over literal workflow names satisfies them and would invert the shipped set.
 assert_eq "#1402 lint fail-closed: two literal workflow loops refuse, naming both lines" "yes" \
   "$(case "$(sp_neverset "$SP_FX/installs/two-literal-loops.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"more than one loop over literal workflow names"*"lines 7, 12"*) echo yes ;; *) echo no ;; esac)"
-assert_eq "#1402 lint fail-closed: two DEVFLOW_WITHHELD_TIER assignments refuse, naming both lines" "yes" \
-  "$(case "$(sp_neverset "$SP_FX/installs/two-withheld.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"more than one DEVFLOW_WITHHELD_TIER assignment"*"lines 5, 6"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1402/#1423 lint: a duplicated DEVFLOW_WITHHELD_TIER does not refuse (the lint does not read it)" \
+  "rc=0|alpha beta internal-only probe" \
+  "$(sp_neverset "$SP_FX/installs/two-withheld.sh" "$SP_WORKFLOWS_FX")"
 # A workflows source that is not a git repository is an unestablished listing, not an empty
 # one — the arm that decides whether an unreadable population fails closed or degrades.
 assert_eq "#1402 lint fail-closed: a non-repository workflows source refuses, naming git's own error" "yes" \
@@ -49846,11 +49847,10 @@ assert_eq "#1402 lint: an unmarked bare-basename reference is reported" "yes" \
 # fence-conditional spelling of the shared declaration marker (_MARKER_HTML / _MARKER_SHELL).
 assert_eq "#1402 lint: a copy-loop workflow reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" skills/near-miss-implement.md)"
-# Issue #1423 flipped this case: a withheld-tier name is reported, and its finding carries the
-# distinguishing provenance clause rather than the plugin-internal wording, so the reader is
-# told the file resolves only in a repo that installed before the tier was withheld.
-assert_eq "#1402/#1423 lint: a withheld-tier reference is reported with the withheld-tier clause" "yes" \
-  "$(case "$(sp_run "$SP_SIMPLE" skills/near-miss-runner.md)" in "rc=1|"*"skills/near-miss-runner.md:1:"*"never-shipped workflow 'devflow-runner.yml'"*"before the tier was withheld"*) echo yes ;; *) echo no ;; esac)"
+# Issue #1423 flipped this case: a withheld-tier name reaches no fresh consumer, so it is
+# reported exactly like any other never-shipped name.
+assert_eq "#1402/#1423 lint: a withheld-tier reference is reported, not clean" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/near-miss-runner.md)" in "rc=1|"*"skills/near-miss-runner.md:1:"*"never-shipped workflow 'devflow-runner.yml'"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#1402 lint: an HTML-marked never-shipped reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" skills/never-shipped-marked-html.md)"
 assert_eq "#1402 lint: a fence-marked never-shipped reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
@@ -49865,7 +49865,7 @@ assert_eq "#1402 lint: a bare extensionless stem is not reported (disclosed resi
 # a mutant moving the audit-side derivation below the scan loop keeps the block green.
 assert_eq "#1402 lint fail-closed: the audit path refuses before auditing any file" "yes" \
   "$(SP_NS_AL="$(probe_tmp '#1402 audit fail-closed list')" && printf '%s\n' skills/clean.md > "$SP_NS_AL"
-     SP_NS_AO="$(python3 "$SP_LINT" --root "$SP_FX" --files-from "$SP_NS_AL" --slice-source "$SP_SIMPLE" --schema-source "$SP_SCHEMA" --install-source "$SP_FX/installs/no-withheld.sh" --workflows-source "$SP_WORKFLOWS_FX" 2>&1)"; SP_NS_AR=$?
+     SP_NS_AO="$(python3 "$SP_LINT" --root "$SP_FX" --files-from "$SP_NS_AL" --slice-source "$SP_SIMPLE" --schema-source "$SP_SCHEMA" --install-source "$SP_FX/installs/no-copy-loop.sh" --workflows-source "$SP_WORKFLOWS_FX" 2>&1)"; SP_NS_AR=$?
      rm -f "$SP_NS_AL"
      case "rc=$SP_NS_AR|$SP_NS_AO" in "rc=1|"*"auditing nothing"*) case "$SP_NS_AO" in *"audited "*) echo no ;; *) echo yes ;; esac ;; *) echo no ;; esac)"
 # A longer filename that merely ENDS in a never-shipped stem is a consumer's own file, not
