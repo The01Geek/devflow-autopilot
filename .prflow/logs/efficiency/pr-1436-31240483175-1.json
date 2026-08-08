@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1436",
+  "generated_at": "2026-08-08T04:58:37Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.42",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.5038149999999995,
+    "tokens": {
+      "input_tokens": 32,
+      "output_tokens": 11300,
+      "cache_read_input_tokens": 1957190,
+      "cache_creation_input_tokens": 124256,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 32,
+        "outputTokens": 11300,
+        "cacheReadInputTokens": 1957190,
+        "cacheCreationInputTokens": 124256,
+        "webSearchRequests": 0,
+        "costUSD": 2.5038149999999995,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 18,
+    "duration_ms": 193408
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "gh pr diff 1436 > /home/runner/work/prflow/prflow/.prflow/tmp/pr1436.diff 2>&1; wc -l /home/runner/work/prflow/prflow/.prflow/tmp/pr1436.diff; echo \"---FILES---\"; git diff --name-status main...b723794f18acf70d4936a01a13dbfb5d4ee6f5ce 2>&1 | head",
+      "for f in phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-0-setup phase-2-verification; do\n  h=$(git hash-object skills/review/phases/$f.md)\n  # git hash-object is blob sha1, not sha256; use sha256 via python-free? use sha256sum\n  s=$(sha256sum skills/review/phases/$f.md | cut -d' ' -f1)\n  m=$(jq -r --arg k \"skills/review/phases/$f.md\" '.[$k] // (.files[$k]) // \"MISSING\"' scripts/devflow-cloud-writer-contract.json)\n  printf '%s  file=%s  manifest=%s  %s\\n' \"$f\" \"$s\" \"$m\" \"$([ \"$s\" =  …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/post-review-verdict.sh --help 2>&1 | head -30 || scripts/post-review-verdict.sh --help 2>&1 | head -30",
+      "scripts/post-review-verdict.sh 1436 APPROVE .prflow/tmp/review/pr-1436/verdict.md b723794f18acf70d4936a01a13dbfb5d4ee6f5ce 2>&1 | tail -20; echo \"post-rc=$?\""
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
