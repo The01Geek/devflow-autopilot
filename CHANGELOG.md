@@ -4,6 +4,13 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.43] — 2026-08-08
+
+### Changed
+- **Compress the two gated implement deferred-* reference files to the instruction-plus-consequence prose rule.** `skills/implement/references/deferred-ac-followups.md` and `deferred-review-findings.md` shed reviewer-pre-emption prose, maintainer notes, probe/inference epistemics, and a self-referential exit count; surviving rationale is trimmed to one consequence sentence. Every operative instruction, routing arm, sentinel, boundary marker, and frozen fence line is preserved. (#1437)
+- **Compress `skills/implement/SKILL.md` under the instruction-plus-consequence prose rule.** Removed defensive/anti-misreading exposition, measurement archaeology (row I3's retired-attribution note, the never-shipped `paste` near-miss), and duplicated tail-call rationale from the always-resident implement orchestrator, while preserving every instruction and its scoping clauses. The nested-skill guards now state their shared rationale once and keep the completion re-anchor and Skill-tool-return re-anchor as distinct triggers. (#1416)
+Editorially compress the review engine's Phase 0–2 references (`phase-0-setup.md`, `phase-0-3-6-blocker-recheck.md`, `phase-0-6-stale-prose-lint.md`, `phase-2-verification.md`) under CLAUDE.md's instruction-plus-consequence prose rule, removing superseded-design records, misreading-pre-emption prose, and duplicate restatements while preserving every instruction, prohibition, degraded arm, failure token, command form, closed-set enumeration, and pinned/frozen literal. `phase-1-checklist.md` already complied and is unchanged. The byte-SHA manifest is regenerated in the same commit. (#1425, PR #1436)
+
 ## [2.31.42] — 2026-08-08
 
 ### Changed
