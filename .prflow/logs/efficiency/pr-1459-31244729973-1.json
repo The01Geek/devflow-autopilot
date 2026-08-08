@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1459",
+  "generated_at": "2026-08-08T06:51:45Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.44",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 1.8889725000000004,
+    "tokens": {
+      "input_tokens": 30,
+      "output_tokens": 8828,
+      "cache_read_input_tokens": 1472485,
+      "cache_creation_input_tokens": 93188,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 30,
+        "outputTokens": 8828,
+        "cacheReadInputTokens": 1472485,
+        "cacheCreationInputTokens": 93188,
+        "webSearchRequests": 0,
+        "costUSD": 1.8889725000000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 16,
+    "duration_ms": 145874
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow\ngit show 753c62d113cbd9da0b6ac25c1f218cae92436961:.prflow/learnings/overrides.json > .prflow/tmp/ov.json 2>/dev/null || mkdir -p .prflow/tmp && git show 753c62d113cbd9da0b6ac25c1f218cae92436961:.prflow/learnings/overrides.json > .prflow/tmp/ov.json\necho \"=== overrides.json valid? ===\"; jq -e '.schema_version' .prflow/tmp/ov.json && echo \"top keys:\" && jq -r 'keys[]' .prflow/tmp/ov.json\necho \"=== filed records count ===\"; jq '[.filed // .active // {} | to_entrie …[per-command-truncated]",
+      "git show 753c62d113cbd9da0b6ac25c1f218cae92436961:.prflow/learnings/overrides.json > .prflow/tmp/ov.json; echo \"schema_version:\"; jq -r '.schema_version' .prflow/tmp/ov.json; echo \"top keys:\"; jq -r 'keys[]' .prflow/tmp/ov.json; echo \"filed count in active:\"; jq '[.active | to_entries[] | select(.value.state==\"filed\")] | length' .prflow/tmp/ov.json"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
