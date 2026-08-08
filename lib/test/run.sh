@@ -49768,6 +49768,14 @@ assert_eq "#1402 lint: the derived never-shipped set is the workflow-source comp
 assert_eq "#1402 lint: membership is word-list, not substring (a decoy occurrence does not ship a name)" \
   "rc=0|alpha beta internal-only probe shipped-two" \
   "$(sp_neverset "$SP_FX/installs/substring-decoy.sh" "$SP_WORKFLOWS_FX")"
+# `_literal_words`' whitespace re-split recovers the members of a QUOTED operand list,
+# which shlex yields as one token. Issue #1423 removed that arm's only live producer
+# (DEVFLOW_WITHHELD_TIER), so this fixture is what keeps it exercised — drop the re-split
+# and the shipped set holds one bogus joined name, putting both real names in the
+# complement below.
+assert_eq "#1402/#1423 lint: a QUOTED copy-loop operand list still yields its members" \
+  "rc=0|alpha beta internal-only probe" \
+  "$(sp_neverset "$SP_FX/installs/quoted-loop.sh" "$SP_WORKFLOWS_FX")"
 # Fail-closed arms: each unestablished declaration refuses non-zero naming install.sh and its
 # own cause, so an unestablished set is never silently an empty one.
 assert_eq "#1402 lint fail-closed: no loop naming a workflow path refuses, naming install.sh" "yes" \
@@ -49916,8 +49924,18 @@ if not any(matcher(f"a reference to {basename}.yml here") for basename in never_
 population = mod._pop.enumerate_population(
     root, None, ls_files_argv=mod._pop.LS_FILES_INDEX
 )
+# Population floor, the third way this gate can go green having checked nothing. The
+# enumeration itself raises on an unreadable or empty listing, but the is_audited FILTER
+# can still select zero paths — a renamed audited prefix, a relocated tree, a shape change
+# in what the enumeration yields — and an empty hit list is byte-identical to the clean
+# result. The lint's own main() carries this floor; the driver reimplements the scan, so it
+# needs its own.
+audited = [path for path in population if mod.is_audited(path)]
+if not audited:
+    print(f"POPULATION-EMPTY-AFTER-FILTER({len(population)} enumerated)")
+    raise SystemExit(2)
 hits = []
-for relative in (path for path in population if mod.is_audited(path)):
+for relative in audited:
     text, skip_reason = mod._pop.read_source(root / relative, skip_nul=False)
     if text is None:
         hits.append(f"{relative}:UNREADABLE({skip_reason})")
