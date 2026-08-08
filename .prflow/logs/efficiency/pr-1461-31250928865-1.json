@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1461",
+  "generated_at": "2026-08-08T09:45:41Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.44",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.496780500000002,
+    "tokens": {
+      "input_tokens": 4538,
+      "output_tokens": 19381,
+      "cache_read_input_tokens": 2735649,
+      "cache_creation_input_tokens": 153790,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 4620,
+        "outputTokens": 46240,
+        "cacheReadInputTokens": 5009486,
+        "cacheCreationInputTokens": 357796,
+        "webSearchRequests": 0,
+        "costUSD": 6.496780500000002,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 500845
+  },
+  "permission_denials": {
+    "count": 11,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none} SKILLDIR=${CLAUDE_SKILL_DIR:-none}\"",
+      "python3 lib/test/lint-shipped-pruned-path.py 2>&1 | tail -5; echo \"rc=${PIPESTATUS[0]}\"",
+      "python3 lib/test/lint-shipped-pruned-path.py --print-never-shipped-set 2>&1; echo \"print-rc=$?\"\necho \"=== full lint audit ===\"\npython3 lib/test/lint-shipped-pruned-path.py 2>&1 | tail -3; echo \"audit-rc=${PIPESTATUS[0]}\"\necho \"=== grep shipped surface for withheld names ===\"\ngrep -rn 'devflow-runner\\|telemetry-push\\|devflow-review' skills/ agents/ 2>&1; echo \"grep-rc=$?\"",
+      "python3 lib/test/lint-shipped-pruned-path.py > .prflow/tmp/lint-audit.out 2>&1; echo \"audit-rc=$?\"; tail -3 .prflow/tmp/lint-audit.out",
+      "for f in skills/implement/phases/phase-1-setup.md skills/implement/phases/phase-3-review.md skills/review/phases/phase-0-6-stale-prose-lint.md; do\n  h=$(git hash-object -t blob --no-filters \"$f\" 2>/dev/null)\n  # compute sha256 to compare against contract\n  s=$(python3 -c \"import hashlib,sys; print(hashlib.sha256(open('$f','rb').read()).hexdigest())\")\n  c=$(python3 -c \"import json; print(json.load(open('scripts/devflow-cloud-writer-contract.json'))['assets']['$f'] if 'assets' in json.load(open('s …[per-command-truncated]",
+      "python3 -c \"\nimport json\nd=json.load(open('scripts/devflow-cloud-writer-contract.json'))\n# find the mapping containing our keys\ndef find(d):\n    if isinstance(d,dict):\n        for k,v in d.items():\n            if k=='skills/implement/phases/phase-1-setup.md': return d\n            r=find(v)\n            if r: return r\n    return None\nm=find(d)\nfor k in ['skills/implement/phases/phase-1-setup.md','skills/implement/phases/phase-3-review.md','skills/review/phases/phase-0-6-stale-prose-lint.md']:\n     …[per-command-truncated]",
+      "for f in lib/test/fixtures/shipped-pruned-path/installs/*.sh; do echo \"=== $f ===\"; cat \"$f\"; done",
+      "for f in /home/runner/work/prflow/prflow/lib/test/fixtures/shipped-pruned-path/installs/simple.sh /home/runner/work/prflow/prflow/lib/test/fixtures/shipped-pruned-path/installs/substring-decoy.sh /home/runner/work/prflow/prflow/lib/test/fixtures/shipped-pruned-path/installs/variable-only-loop.sh /home/runner/work/prflow/prflow/lib/test/fixtures/shipped-pruned-path/installs/no-withheld.sh /home/runner/work/prflow/prflow/lib/test/fixtures/shipped-pruned-path/installs/two-withheld.sh; do echo \"===  …[per-command-truncated]",
+      "grep -n \"SP_WORKFLOWS_FX=\" lib/test/run.sh; echo \"---\"; git -c core.quotepath=off ls-files 'lib/test/fixtures/shipped-pruned-path/workflows/*'",
+      "python3 lib/test/lint-shipped-pruned-path.py 2>&1 | tail -5; echo \"rc=${PIPESTATUS[0]}\"",
+      "for f in skills/implement/phases/phase-1-setup.md skills/implement/phases/phase-3-review.md skills/review/phases/phase-0-6-stale-prose-lint.md; do printf '%s  ' \"$(sha256sum \"$f\" | cut -d\" \" -f1)\"; echo \"$f\"; done"
+    ],
+    "total": 11,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
