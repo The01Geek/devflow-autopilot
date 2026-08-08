@@ -49768,13 +49768,12 @@ assert_eq "#1402 lint: the derived never-shipped set is the workflow-source comp
 assert_eq "#1402 lint: membership is word-list, not substring (a decoy occurrence does not ship a name)" \
   "rc=0|alpha beta internal-only probe shipped-two" \
   "$(sp_neverset "$SP_FX/installs/substring-decoy.sh" "$SP_WORKFLOWS_FX")"
-# `_literal_words`' whitespace re-split recovers the members of a QUOTED operand list,
-# which shlex yields as one token. Issue #1423 removed that arm's only live producer
-# (DEVFLOW_WITHHELD_TIER), so this fixture is what keeps it exercised — drop the re-split
-# and the shipped set holds one bogus joined name, putting both real names in the
-# complement below.
-assert_eq "#1402/#1423 lint: a QUOTED copy-loop operand list still yields its members" \
-  "rc=0|alpha beta internal-only probe" \
+# One token is one loop iteration: a QUOTED operand list iterates a single joined value,
+# so neither member is installed and both stay forbidden. Re-splitting the token on
+# whitespace — which `_literal_words` did while DEVFLOW_WITHHELD_TIER was its producer —
+# drops both from the set below, a fail-open this fixture is the control for.
+assert_eq "#1402/#1423 lint: a QUOTED copy-loop operand list ships neither member" \
+  "rc=0|alpha beta internal-only probe shipped-one shipped-two" \
   "$(sp_neverset "$SP_FX/installs/quoted-loop.sh" "$SP_WORKFLOWS_FX")"
 # Fail-closed arms: each unestablished declaration refuses non-zero naming install.sh and its
 # own cause, so an unestablished set is never silently an empty one.

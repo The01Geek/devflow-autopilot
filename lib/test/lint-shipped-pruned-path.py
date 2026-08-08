@@ -424,19 +424,21 @@ def parse_docs_defaults(schema_bytes: bytes) -> set[str]:
 _COPY_LOOP = re.compile(r"^\s*for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+?)\s*;\s*do\s*$")
 
 def _literal_words(operands: str) -> list[str]:
-    """Tokenize a shell operand list into the literal words it declares.
+    """Tokenize a `for … in <operands>; do` list into the literal words it iterates.
 
-    `shlex` removes the quoting; the whitespace re-split recovers the members of a quoted
-    operand list (`for w in "a b"`), which shlex yields as one token, and leaves an
-    already-unquoted list unchanged — the live copy loop is unquoted, so that arm is
-    defensive. A `$`-carrying word is a variable this parser cannot resolve, so it
-    contributes no name rather than contributing its own literal text.
+    One token is one loop iteration, which is why there is no whitespace re-split: a
+    quoted operand (`for w in "a b"`) iterates the single value `a b`, so the installer
+    would look for one absurdly-named workflow and neither `a` nor `b` would reach a
+    consumer — splitting it would drop both from the never-shipped set, a fail-open. (The
+    re-split existed for `DEVFLOW_WITHHELD_TIER`, a string the installer word-splits at
+    use; issue #1423 stopped reading that declaration.) A `$`-carrying word is a variable
+    this parser cannot resolve, so it contributes no name rather than its own literal text.
     """
     try:
         tokens = shlex.split(operands, comments=True, posix=True)
     except ValueError:
         return []
-    return [word for token in tokens for word in token.split() if "$" not in word]
+    return [token for token in tokens if "$" not in token]
 
 
 def parse_shipped_workflow_names(install_text: str) -> set[str]:
