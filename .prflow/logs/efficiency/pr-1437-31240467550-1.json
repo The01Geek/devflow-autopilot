@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1437",
+  "generated_at": "2026-08-08T05:00:37Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.42",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.75175825,
+    "tokens": {
+      "input_tokens": 44,
+      "output_tokens": 17293,
+      "cache_read_input_tokens": 2934074,
+      "cache_creation_input_tokens": 134567,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 72,
+        "outputTokens": 29243,
+        "cacheReadInputTokens": 3457369,
+        "cacheCreationInputTokens": 285922,
+        "webSearchRequests": 0,
+        "costUSD": 4.75175825,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 30,
+    "duration_ms": 349791
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<none>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<none>} ACTIONS=${GITHUB_ACTIONS:-<none>}\"; mkdir -p .prflow/tmp/review/pr-1437/local; git diff origin/main...5b3100c5fae484026b6e396dbb3314d74de67b60 --stat 2>&1 | tail -20",
+      "echo \"=== awk range + bullet count in shipped file (what the pin measures) ===\"; awk '/exits before any label is applied/,/^If the printed/' skills/implement/references/deferred-review-findings.md | grep -c '^- \\*\\*'\necho \"=== does /^If the printed/ terminator exist? ===\"; grep -n '^If the printed' skills/implement/references/deferred-review-findings.md\necho \"=== header line matched by awk start ===\"; grep -n 'exits before any label is applied' skills/implement/references/deferred-review-finding …[per-command-truncated]",
+      "HEAD=5b3100c5fae484026b6e396dbb3314d74de67b60\necho \"=== bullet count at HEAD ===\"; git show $HEAD:skills/implement/references/deferred-review-findings.md | awk '/exits before any label is applied/,/^If the printed/' | grep -c '^- \\*\\*'\necho \"=== start header at HEAD ===\"; git show $HEAD:skills/implement/references/deferred-review-findings.md | grep -n 'exits before any label is applied'\necho \"=== terminator at HEAD ===\"; git show $HEAD:skills/implement/references/deferred-review-findings.md | gr …[per-command-truncated]",
+      "git show 5b3100c5fae484026b6e396dbb3314d74de67b60:skills/implement/references/deferred-review-findings.md > .prflow/tmp/head-drf.md\ngit show 5b3100c5fae484026b6e396dbb3314d74de67b60:skills/implement/references/deferred-ac-followups.md > .prflow/tmp/head-acf.md\necho \"=== DRF bullet count in awk range at HEAD ===\"; awk '/exits before any label is applied/,/^If the printed/' .prflow/tmp/head-drf.md | grep -c '^- \\*\\*'\necho \"=== DRF start header at HEAD ===\"; grep -n 'exits before any label is appli …[per-command-truncated]",
+      "HEADSHA=5b3100c5fae484026b6e396dbb3314d74de67b60\necho \"=== DRF first/last line: base vs head ===\"\necho \"base-first:  $(git show origin/main:skills/implement/references/deferred-review-findings.md | head -1)\"\necho \"head-first:  $(git show $HEADSHA:skills/implement/references/deferred-review-findings.md | head -1)\"\necho \"base-last :  $(git show origin/main:skills/implement/references/deferred-review-findings.md | tail -1)\"\necho \"head-last :  $(git show $HEADSHA:skills/implement/references/deferred …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/post-review-verdict.sh --help 2>&1 | head -40 || echo \"no vendored copy, trying repo path\"; scripts/post-review-verdict.sh --help 2>&1 | head -40",
+      "scripts/post-review-verdict.sh --help 2>&1 | head -50"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
