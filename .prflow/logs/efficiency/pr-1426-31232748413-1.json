@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1426",
+  "generated_at": "2026-08-08T02:04:04Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.35",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 19.028423000000007,
+    "tokens": {
+      "input_tokens": 224,
+      "output_tokens": 47512,
+      "cache_read_input_tokens": 25030971,
+      "cache_creation_input_tokens": 265050,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 297,
+        "outputTokens": 61579,
+        "cacheReadInputTokens": 26550101,
+        "cacheCreationInputTokens": 514956,
+        "webSearchRequests": 0,
+        "costUSD": 19.028423000000007,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 125,
+    "duration_ms": 2009488
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --short; echo \"---BRANCH---\"; git branch --show-current; echo \"---ENV---\"; echo \"GHA=$GITHUB_ACTIONS RUN=$GITHUB_RUN_ID ATTEMPT=$GITHUB_RUN_ATTEMPT REPO=$GITHUB_REPOSITORY\"",
+      "mkdir -p .prflow/tmp && scripts/parse-acs.py --issue 1413 > .prflow/tmp/acs-1413.md && cat .prflow/tmp/acs-1413.md",
+      ".prflow/vendor/prflow/scripts/phase2-durability-checkpoint.sh \"fix(skills): namespace docs-* command references\" skills/docs-bootstrap-external/SKILL.md skills/docs-bootstrap-internal/SKILL.md skills/docs-sync-external/SKILL.md scripts/devflow-cloud-writer-contract.json 2>&1 | tail -15; echo \"EXIT=${PIPESTATUS[0]}\"",
+      "scripts/workpad.py update 1413 \\\n  --note \"AC gate: AC1 verified — 'grep -rnoE `/[a-z-]+` skills/docs-*/ | grep -v prflow:' returns no command refs (only file-path matches remain, correctly untouched). AC2 verified — the two Preflight stop arms (docs-sync-external:29, docs-bootstrap-external:25) now name /prflow:docs-* commands whose skill dirs exist and resolve in a consumer checkout. AC3 verified in-env — manifest regenerated in the same commit (85b5ef67) as the prose edits; 'python3 lib/test/ …[per-command-truncated]",
+      "echo \"===reception===\"; scripts/reception-record.py --help 2>&1 | head -25; echo \"===fingerprint===\"; scripts/checkout-fingerprint.py --help 2>&1 | head -20",
+      "scripts/checkout-fingerprint.py 2>&1 | head -5",
+      "scripts/checkout-fingerprint.py",
+      ".prflow/vendor/prflow/scripts/checkout-fingerprint.py > .prflow/tmp/flight-checkout-1413.json 2>&1; cat .prflow/tmp/flight-checkout-1413.json; echo \"===CLAIM===\"; scripts/verification-flight.py claim --input-file .prflow/tmp/flight-decl-1413.json 2>&1",
+      "TRIGGER_COMMENT_ID=$(gh api \"repos/{owner}/{repo}/issues/1413/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null); echo \"trigger=$TRIGGER_COMMENT_ID\"; scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment \"$TRIGGER_COMMENT_ID\" --reaction hooray --report-failure 2>&1; echo \"EXIT=$?\""
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
