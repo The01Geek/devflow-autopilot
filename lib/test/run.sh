@@ -37739,7 +37739,7 @@ assert_pin_unique "#423 T10 arm(a) harness-refused names prflow_runner.allowed_t
 assert_eq "#424 producer: devflow-runner.yml appends prflow_runner.allowed_tools ONLY under the provision_env gate" \
   "yes" "$(awk '/^ *if \[ "\$PROVISION_ENV" = "true" \]; then/{g=1} g && /TOOLS="\$TOOLS,\$FILTERED"/{f=1} END{print f?"yes":"no"}' "$SP_RUNNER_YML")"
 assert_pin_unique "#424 T11 engine arm(a) names provision_env as the precondition of the config bridge" \
-  'only inside `devflow-runner.yml`'"'"'s `prflow_runner.provision_env` gate, and `provision_env` defaults to `false`' "$SP_REVIEW"
+  'only inside the cloud review runner workflow'"'"'s `prflow_runner.provision_env` gate, and `provision_env` defaults to `false`' "$SP_REVIEW"
 
 # T12 → Phase 0.6 feeds the helper by PIPE, not an input redirect (#424 review Important 2):
 # the `<` input-redirect shape is not in the skill's enumerated cloud-permitted set, so the
