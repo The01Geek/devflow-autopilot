@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1435",
+  "generated_at": "2026-08-08T04:25:44Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.40",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.4020775,
+    "tokens": {
+      "input_tokens": 28,
+      "output_tokens": 11146,
+      "cache_read_input_tokens": 1619642,
+      "cache_creation_input_tokens": 121330,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 58,
+        "outputTokens": 21163,
+        "cacheReadInputTokens": 2426625,
+        "cacheCreationInputTokens": 192706,
+        "webSearchRequests": 0,
+        "costUSD": 3.4020775,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 17,
+    "duration_ms": 342047
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "mkdir -p .prflow/tmp; gh pr diff 1435 > .prflow/tmp/review-1435.diff 2>&1; wc -l .prflow/tmp/review-1435.diff",
+      "cd /home/runner/work/prflow/prflow; for t in \"APPROVE WITH CAVEAT\" \"corroboration\" \"engine_self_modifying\" \"request-changes\\|REQUEST_CHANGES\\|request_changes\" \"per run\\|per-run\\|run-keyed marker\" \"as that agent returns\\|as the agent returns\\|as it returns\" \"persist\" \"dismiss\" \"three-arm\\|three arm\" \"Step 2.5\\|2.5 web\"; do echo \"=== $t ===\"; grep -rniE \"$t\" skills/review/ | grep -v \"Common Mistakes\" | grep -vic \"common mistakes\"; grep -rilE \"$t\" skills/review/; done"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
