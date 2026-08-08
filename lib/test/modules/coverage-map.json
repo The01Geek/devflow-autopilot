@@ -1120,7 +1120,7 @@
       "owner": "unmodularized"
     },
     "1402": {
-      "note": "",
+      "note": "the never-shipped-workflow forbidden class in lint-shipped-pruned-path.py: the derivation matrix over synthetic install.sh + workflow-source pairs, the fail-closed and ambiguity refusals, the four near-misses, the disclosed residuals, and the marker-blind live gate over the tracked shipped surface",
       "owner": "unmodularized"
     },
     "1405": {

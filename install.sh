@@ -799,9 +799,9 @@ devflow_write_manifest() {
 DEVFLOW_WITHHELD_TIER="devflow-review devflow-runner telemetry-push"
 devflow_withheld_tier_present() {
   local _wt found=""
-  # `_wt`, not `w`: `for w in …` is the shape lib/test/run.sh parses out of this file to
-  # derive the SHIPPED workflow set, and a second loop over that variable name upstream of
-  # the copy loop would be the one it found.
+  # `_wt`, not `w`: `for w in …` is the shape more than one checker parses out of this file
+  # to derive the SHIPPED workflow set, and a second loop over that variable name upstream of
+  # the copy loop would be the one they found.
   for _wt in $DEVFLOW_WITHHELD_TIER; do
     [ -f ".github/workflows/$_wt.yml" ] && found="$found $_wt"
   done

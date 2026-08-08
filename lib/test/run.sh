@@ -49232,9 +49232,9 @@ SP_SIMPLE="$SP_FX/slices/simple.sh"
 SP_SCHEMA="$SP_FX/schemas/real-docs.json"
 # Issue #1402: the never-shipped-workflow set is derived from install.sh + .github/workflows/,
 # neither of which exists under a fixture root, so every --root-overriding helper below names
-# the REAL pair. That is deliberate rather than incidental: the audited-scan cases assert the
-# real workflow basenames (matcher-probe, devflow-implement, devflow-runner), so the derivation
-# they run against must be the real one. The derivation matrix drives synthetic pairs instead.
+# the REAL pair. That is deliberate rather than incidental: the audited-scan cases assert real
+# workflow names, so the derivation they run against must be the real one. The derivation
+# matrix drives synthetic pairs instead.
 SP_INSTALL_REAL="$LIB/../install.sh"
 SP_WORKFLOWS_REAL="$LIB/../.github/workflows"
 SP_INSTALL_FX="$SP_FX/installs/simple.sh"
@@ -49783,6 +49783,20 @@ assert_eq "#1402 lint fail-closed: an empty DEVFLOW_WITHHELD_TIER refuses, namin
 assert_eq "#1402 lint: --print-never-shipped-set is independent of the slice and schema sources" \
   "rc=0|agents-seam-probe ci matcher-probe version-consolidate" \
   "$(cd "$LIB/.." && sp_encode --print-never-shipped-set --slice-source /dev/null --schema-source /dev/null)"
+# Selection collects every candidate before choosing, so ambiguity refuses rather than
+# resolving by position. Both conjuncts say nothing about a loop's DIRECTION — the fixture's
+# removal loop over literal workflow names satisfies them and would invert the shipped set —
+# and a later reassignment would silently redefine the withheld tier.
+assert_eq "#1402 lint fail-closed: two literal workflow loops refuse, naming both lines" "yes" \
+  "$(case "$(sp_neverset "$SP_FX/installs/two-literal-loops.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"more than one loop over literal workflow names"*"lines 7, 12"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1402 lint fail-closed: two DEVFLOW_WITHHELD_TIER assignments refuse, naming both lines" "yes" \
+  "$(case "$(sp_neverset "$SP_FX/installs/two-withheld.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"more than one DEVFLOW_WITHHELD_TIER assignment"*"lines 5, 6"*) echo yes ;; *) echo no ;; esac)"
+# A workflows source that is not a git repository is an unestablished listing, not an empty
+# one — the arm that decides whether an unreadable population fails closed or degrades.
+assert_eq "#1402 lint fail-closed: a non-repository workflows source refuses, naming git's own error" "yes" \
+  "$(SP_NS_NG="$(probe_tmp '#1402 non-repo workflows source')" && rm -f "$SP_NS_NG" && mkdir -p "$SP_NS_NG"
+     SP_NS_NGO="$(sp_neverset "$SP_INSTALL_FX" "$SP_NS_NG")"; rm -rf "$SP_NS_NG"
+     case "$SP_NS_NGO" in "rc=1|"*"git ls-files"*"exited"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#1402 lint fail-closed: an unreadable install source refuses, naming it" "yes" \
   "$(case "$(sp_neverset "$SP_FX/installs/does-not-exist.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"could not read install source"*"does-not-exist.sh"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#1402 lint fail-closed: a workflows source holding no *.yml refuses, naming it" "yes" \
@@ -49794,7 +49808,7 @@ assert_eq "#1402 lint fail-closed: an all-shipped workflow source empties the se
   "$(case "$(sp_neverset "$SP_INSTALL_FX" "$SP_FX/workflows/all-shipped")" in "rc=1|"*"leaving the never-shipped set empty"*) echo yes ;; *) echo no ;; esac)"
 SP_NS_BOTH_OUT="$(python3 "$SP_LINT" --print-prune-set --print-never-shipped-set --slice-source "$SP_SIMPLE" --schema-source "$SP_SCHEMA" 2>&1)"; SP_NS_BOTH_RC=$?
 assert_eq "#1402 lint: --print-never-shipped-set joins the mutually exclusive print group" "yes" \
-  "$(case "rc=$SP_NS_BOTH_RC|$SP_NS_BOTH_OUT" in "rc=2|"*"--print-never-shipped-set: not allowed with argument --print-prune-set"*) echo yes ;; *) echo no ;; esac)"
+  "$(case "rc=$SP_NS_BOTH_RC|$SP_NS_BOTH_OUT" in "rc=2|"*"--print-never-shipped-set"*"--print-prune-set"*) echo yes ;; *) echo no ;; esac)"
 # The derived set over the REAL install.sh and .github/workflows/. The expectation literal —
 # not a comment — is the drift-proof record of the membership, mirroring the #1072 prune-set
 # and #1401 vendored-scope floors: shipping a new internal workflow, or moving one into the
@@ -49806,9 +49820,11 @@ assert_eq "#1402 lint: the real never-shipped set matches the checked-in expecta
 # Both literals stay (each is its own drift-proof record), but nothing previously asserted
 # they still name the same set — so a workflow moved out of DEVFLOW_WITHHELD_TIER without a
 # matching _582_RETAINED edit would silently split the two definitions.
+# Both sides are normalized by python3 (preflight-guaranteed), never `sort`/`tr`: a missing
+# non-preflight tool would empty BOTH sides and pass the assertion while checking nothing.
 assert_eq "#1402 lint: the derived never-shipped set equals #582's plugin-internal partition" \
-  "$(printf '%s\n' $_582_INTERNAL | LC_ALL=C sort | tr '\n' ' ')" \
-  "$(printf '%s\n' $SP_NEVER_REAL | LC_ALL=C sort | tr '\n' ' ')"
+  "$(printf '%s' "$_582_INTERNAL" | python3 -c 'import sys; print(" ".join(sorted(sys.stdin.read().split())))')" \
+  "$(printf '%s' "$SP_NEVER_REAL" | python3 -c 'import sys; print(" ".join(sorted(sys.stdin.read().split())))')"
 # --- Audited-scan cases, over the REAL derivation (see SP_INSTALL_REAL above). ---
 # Both spellings are asserted independently because a key on the fully-qualified path alone
 # would report the first and miss the second.
@@ -49816,9 +49832,8 @@ assert_eq "#1402 lint: an unmarked fully-qualified .github/workflows/ reference 
   "$(case "$(sp_run "$SP_SIMPLE" skills/never-shipped-qualified.md)" in "rc=1|"*"skills/never-shipped-qualified.md:1:"*"never-shipped workflow 'matcher-probe.yml'"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#1402 lint: an unmarked bare-basename reference is reported" "yes" \
   "$(case "$(sp_run "$SP_SIMPLE" skills/never-shipped-bare.md)" in "rc=1|"*"skills/never-shipped-bare.md:1:"*"never-shipped workflow 'matcher-probe.yml'"*) echo yes ;; *) echo no ;; esac)"
-# The near-misses are complete by construction: a shipped name reaches a consumer's tree
-# either through the copy loop or through the withheld tier, and the shared declaration
-# marker has exactly two fence-conditional spellings.
+# Each near-miss covers one clean case: a copy-loop name, a withheld-tier name, and each
+# fence-conditional spelling of the shared declaration marker (_MARKER_HTML / _MARKER_SHELL).
 assert_eq "#1402 lint: a copy-loop workflow reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" skills/near-miss-implement.md)"
 assert_eq "#1402 lint: a withheld-tier workflow reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
@@ -49832,12 +49847,29 @@ assert_eq "#1402 lint: a fence-marked never-shipped reference is clean" "rc=0|li
 # rather than a silent behaviour change, and so the docstring's disclosure stays true.
 assert_eq "#1402 lint: a bare extensionless stem is not reported (disclosed residual)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" skills/never-shipped-stem.md)"
+# The audit path derives BEFORE the enumeration, so an unestablished declaration audits zero
+# files. Every assertion above drives the print flag, which returns earlier — without this one
+# a mutant moving the audit-side derivation below the scan loop keeps the block green.
+assert_eq "#1402 lint fail-closed: the audit path refuses before auditing any file" "yes" \
+  "$(SP_NS_AL="$(probe_tmp '#1402 audit fail-closed list')" && printf '%s\n' skills/clean.md > "$SP_NS_AL"
+     SP_NS_AO="$(python3 "$SP_LINT" --root "$SP_FX" --files-from "$SP_NS_AL" --slice-source "$SP_SIMPLE" --schema-source "$SP_SCHEMA" --install-source "$SP_FX/installs/no-withheld.sh" --workflows-source "$SP_WORKFLOWS_FX" 2>&1)"; SP_NS_AR=$?
+     rm -f "$SP_NS_AL"
+     case "rc=$SP_NS_AR|$SP_NS_AO" in "rc=1|"*"auditing nothing"*) case "$SP_NS_AO" in *"audited "*) echo no ;; *) echo yes ;; esac ;; *) echo no ;; esac)"
+# A longer filename that merely ENDS in a never-shipped stem is a consumer's own file, not
+# PRFlow's. Without the filename-boundary guard the plain substring key reports it — a false
+# statement about a file the consumer really has.
+assert_eq "#1402 lint: a longer filename ending in a never-shipped stem is not reported" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/near-miss-longer-name.md)"
 # The live gate the whole class exists for: the tracked shipped surface names no never-shipped
 # workflow, and no pruned-path-ok marker in ANY spelling was used to suppress one. The second
 # half is what keeps the resolution a removal rather than a suppression — restoring a pointer
 # behind a marker leaves the run above green and turns this RED.
-assert_eq "#1402 lint: no tracked skills/**+agents/** line names a never-shipped workflow" "" \
-  "$(cd "$LIB/.." && python3 - "$SP_LINT" <<'PY'
+# Merge stderr and encode the exit status into the compared value, as every other assertion
+# in this block does through sp_encode. Without it the scan's own failure modes — a refused
+# derivation, a renamed module attribute, an unreadable population — all print to stderr and
+# leave stdout empty, which is byte-identical to the clean result: the gate would report
+# green on exactly the input that disabled it.
+SP_NS_LIVE="$(cd "$LIB/.." && python3 - "$SP_LINT" 2>&1 <<'PY'
 import importlib.util
 import sys
 from pathlib import Path
@@ -49849,7 +49881,10 @@ spec.loader.exec_module(mod)
 never_shipped = mod._establish_never_shipped(
     root / mod.DEFAULT_INSTALL_REL, root / mod.DEFAULT_WORKFLOWS_REL
 )
-filenames = [f"{basename}.yml" for basename in never_shipped]
+if never_shipped is None:
+    print("DERIVATION-REFUSED")
+    raise SystemExit(2)
+matcher = mod._never_shipped_matcher(never_shipped)
 # Through the shared population reader, so this scan inherits its path-quoting and
 # reported-skip contracts instead of a second hand-rolled git ls-files.
 population = mod._pop.enumerate_population(
@@ -49862,11 +49897,13 @@ for relative in (path for path in population if mod.is_audited(path)):
         hits.append(f"{relative}:UNREADABLE({skip_reason})")
         continue
     for number, line in enumerate(text.split("\n"), 1):
-        if any(filename in line for filename in filenames):
+        if matcher(line):
             hits.append(f"{relative}:{number}")
 print(" ".join(hits))
 PY
-)"
+)"; SP_NS_LIVE_RC=$?
+assert_eq "#1402 lint: no tracked skills/**+agents/** line names a never-shipped workflow" "rc=0|" \
+  "$(printf 'rc=%s|%s' "$SP_NS_LIVE_RC" "$SP_NS_LIVE")"
 
 # ── #1248 ungranted-helper-spelling lint (lib/test/lint-ungranted-helper-spelling.py) ──
 # The cloud matcher grants each bundled helper ONLY at the vendored literal
