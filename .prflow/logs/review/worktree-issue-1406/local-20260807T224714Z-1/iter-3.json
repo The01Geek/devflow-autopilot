@@ -1,0 +1,308 @@
+{
+  "iter": 3,
+  "started_at": "2026-08-07T23:30:00Z",
+  "fix_commit_sha": "3fa205a1ba368c7c2bac52efd01a96ce44d4ebf2",
+  "fix_files": [
+    "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": [
+    "phase-2-implement.md"
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "prompt-surface edit carried no Writing-skills evidence: marker on the workpad or PR description",
+      "defect_signature": {
+        "file": "skills/review-and-fix/references/shadow-review.md",
+        "line_range": null,
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "optional symmetry polish at shadow-review.md:94 mirroring line 225's residency parenthetical",
+      "defect_signature": {
+        "file": "skills/review-and-fix/references/shadow-review.md",
+        "line_range": [
+          94,
+          94
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "docs/internal/review-agent-overrides.md:123 stale engine cross-reference, same class, pre-existing and diff-untouched",
+      "defect_signature": {
+        "file": "docs/internal/review-agent-overrides.md",
+        "line_range": [
+          123,
+          123
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "workpad-note (attestation recorded, not a tree change)"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "pushed_back",
+      "source_file": "skills/review-and-fix/references/shadow-review.md",
+      "claim_text": "mirror line 225's residency parenthetical at line 94 for symmetry",
+      "skip_category": "out-of-scope",
+      "evidence": "the issue's Approach directs repairing each restatement and adding nothing; the reviewer itself grades this a consistency polish and states the current wording is accurate and actionable as written",
+      "parking_evidence": {
+        "basis": "adding prose to a shipped prompt surface is outside a bounded pointer repair",
+        "failing_input": "an agent reading line 94 without the residency note",
+        "source": "issue #1406 Implementation Notes, Approach: 'Repair each restatement at its source; add nothing.'",
+        "finding_ref": {
+          "iter": 3,
+          "index": 1
+        }
+      }
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "deferred",
+      "source_file": "docs/internal/review-agent-overrides.md",
+      "claim_text": "enforced engine-side in skills/review/SKILL.md Phase 3.1",
+      "skip_category": "out-of-scope",
+      "evidence": "pre-existing and diff-untouched, so outside the Phase 4.2 self-contradicting-diff carve-out; folded into the same follow-up already recorded for skills/review-and-fix/SKILL.md:79,83",
+      "parking_evidence": {
+        "basis": "same defect class on a line this diff does not touch; the issue's ACs enumerate a closed file set",
+        "failing_input": "a maintainer following the pointer to skills/review/SKILL.md Phase 3.1",
+        "source": "git diff origin/main...HEAD does not list docs/internal/review-agent-overrides.md",
+        "finding_ref": {
+          "iter": 3,
+          "index": 2
+        }
+      }
+    },
+    {
+      "finding_id": "S-1",
+      "decision": "severity-calibrated",
+      "source_file": "skills/review-and-fix/references/shadow-review.md",
+      "claim_text": "the over-grade gate's 'so the shapes are in context' is an unverified assumption and the gate's non-execution is undetectable",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "over-grade shape 3 (uncorroborated single-source from an empirical over-grader): raised only by silent-failure-hunter in the shadow fan-out, with no corroboration from the other three roster agents and no Phase-2 checklist FAIL covering it. The structural property is PRE-EXISTING verbatim — the reviewer states so itself ('the pre-diff sentence made the same assumption about skills/review/SKILL.md'); this diff only corrected which file the parenthetical names. The proposed remedy is a redesign of the Step 2.6 gate plus new prose on a shipped surface, which the issue's Approach ('add nothing') and its closed AC set both exclude. Recorded technical evaluation; not auto-demoted."
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "pushed_back",
+      "source_file": "skills/review-and-fix/references/shadow-review.md",
+      "claim_text": "bare 'review 4.1.5' citations at line 231 carry no file anchor",
+      "skip_category": "out-of-scope",
+      "evidence": "two of those citations sit inside literals lib/test/run.sh pins for uniqueness ('behavior-inert prose cap (review 4.1.5)', 'cannot drive a Decide-outcome-2 promotion'), and issue #1406 states that bare-number references elsewhere in the tree are deliberately left alone",
+      "parking_evidence": {
+        "basis": "editing the paragraph risks the two run.sh uniqueness pins and is excluded by the issue's own scope statement",
+        "failing_input": "a reader of line 231 with no engine file open",
+        "source": "issue #1406 Potential Gotchas; lib/test/run.sh assert_pin_unique 291(AC4)",
+        "finding_ref": {
+          "iter": 3,
+          "index": 3
+        }
+      }
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "deferred",
+      "source_file": "skills/review-and-fix/SKILL.md",
+      "claim_text": "Phases 0 through 4.3 live in /prflow:review's SKILL.md and are authoritative",
+      "skip_category": "already-tracked",
+      "evidence": "pre-existing and diff-untouched, so outside the self-contradicting-diff carve-out; already recorded as a deferred reflection on the issue workpad for a follow-up issue",
+      "parking_evidence": {
+        "basis": "already tracked as deferred work on this run's workpad",
+        "failing_input": "a maintainer editing the engine per that sentence",
+        "source": "issue #1406 workpad Devflow Reflection, deferred bullet",
+        "finding_ref": {
+          "iter": 3,
+          "index": 4
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 2,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-08-07T23:40:00Z",
+    "reviewed_sha": "3fa205a1ba368c7c2bac52efd01a96ce44d4ebf2",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "acceptance criteria (box-neutralized) + defect_signature contract; no loop history, no prior findings",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "prflow:silent-failure-hunter",
+        "severity": "Important",
+        "defect_signature": {
+          "file": "skills/review-and-fix/references/shadow-review.md",
+          "line_range": [
+            94,
+            94
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "prflow:silent-failure-hunter",
+        "severity": "Important",
+        "defect_signature": {
+          "file": "skills/review-and-fix/references/shadow-review.md",
+          "line_range": [
+            225,
+            225
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "prflow:comment-analyzer",
+        "severity": "Suggestion",
+        "defect_signature": {
+          "file": "skills/review-and-fix/references/shadow-review.md",
+          "line_range": [
+            231,
+            231
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "prflow:comment-analyzer",
+        "severity": "Suggestion",
+        "defect_signature": {
+          "file": "docs/internal/review-agent-overrides.md",
+          "line_range": [
+            123,
+            123
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "prflow:requesting-code-review",
+        "severity": "Suggestion",
+        "defect_signature": {
+          "file": "skills/review-and-fix/references/shadow-review.md",
+          "line_range": [
+            94,
+            94
+          ],
+          "kind": "api_misuse"
+        }
+      },
+      {
+        "agent": "prflow:requesting-code-review",
+        "severity": "Suggestion",
+        "defect_signature": {
+          "file": "skills/review-and-fix/SKILL.md",
+          "line_range": [
+            79,
+            79
+          ],
+          "kind": "documented_falsehood"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 6,
+      "overlap_with_iter_N": 3,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": false
+  },
+  "verification_evidence": {
+    "command": "lib/test/run-shard.sh monolith (plus lib/test/run-module.sh review-and-fix-contract and five standalone lints)",
+    "result": "pass",
+    "duration_s": null,
+    "skipped_checks": [],
+    "focused_selection": {
+      "single_flight_consulted": null,
+      "surfaces": [
+        {
+          "surface": "skills/review-and-fix/references/shadow-review.md",
+          "exemption_ground": "no coverage-map entry at all; the run.sh-resident surface was exercised via the monolith shard (8839 passed, 0 failed, 0 skipped)"
+        },
+        {
+          "surface": "docs/internal/shadow-review.md",
+          "exemption_ground": "no coverage-map entry at all (the map covers only lib/ and scripts/ source units)"
+        },
+        {
+          "surface": "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md",
+          "exemption_ground": "no coverage-map entry at all (the map covers only lib/ and scripts/ source units)"
+        }
+      ]
+    }
+  },
+  "stale_prose_check": "exit 0; one UNRESOLVABLE R3 row on docs/internal/shadow-review.md:509 (informational, non-gating); zero STALE rows",
+  "telemetry": "unavailable",
+  "synthesized": false
+}

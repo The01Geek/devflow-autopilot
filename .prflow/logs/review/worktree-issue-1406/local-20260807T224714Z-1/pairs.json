@@ -1,0 +1,206 @@
+{
+ "pairs": [
+  {
+   "item": {
+    "id": "VC-1",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-1-n4a91c.json",
+   "response_text": "{\"id\": \"VC-1\", \"verdict\": \"PASS\", \"evidence\": \"Confirmed via `git ls-files -- 'skills/**' 'docs/internal/**' | xargs -r grep -n \\\"SKILL.md Phase 4.1.5\\\"`: zero matches, so the literal string does not occur under skills/ or docs/internal/. Confirmed the Step 2.6 Over-grade calibration gate at skills/review-and-fix/references/shadow-review.md:225: the sentence reads \\\"The over-grade shapes have a single definition, in `skills/review/phases/phase-4-verdict.md` Phase 4.1.5 (*Over-grade advisory annotation*); this gate consumes that canonical list and does not restate it here\\\" and its parenthetical reads \\\"(the fix loop already reads `skills/review/phases/phase-4-verdict.md` at runtime to run Phases 0-4.3, so the shapes are in context)\\\" -- both name skills/review/phases/phase-4-verdict.md, matching the claim exactly.\", \"file_checked\": \"skills/review-and-fix/references/shadow-review.md:225\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-2",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-2-n8b2fd.json",
+   "response_text": "{\"id\": \"VC-2\", \"verdict\": \"PASS\", \"evidence\": \"skills/review-and-fix/references/shadow-review.md:94 reads: 'A shadow finding is new iff no finding in the last iter's phase3_findings matches it under the Phase 3.2 defect_signature corroboration rule in skills/review/phases/phase-3-agents.md. Read that section for the canonical definition and apply it as written \\u2014 a paraphrase here drops operands and reads an already-recorded finding as new.' This sentence names skills/review/phases/phase-3-agents.md explicitly and does not restate any of the corroboration operands (file, line_range, kind) \\u2014 those are defined only in phase-3-agents.md:358 ('Two findings corroborate iff they have the same defect_signature.file, overlapping defect_signature.line_range ... AND identical defect_signature.kind'). The immediately-following 'Overlap rule' paragraph (lines 96) is a separate, pre-existing amendment not governed by this AC, consistent with the scope note.\", \"file_checked\": \"skills/review-and-fix/references/shadow-review.md:94\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-4",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-4-n2c77e.json",
+   "response_text": "{\"id\": \"VC-4\", \"verdict\": \"FAIL\", \"evidence\": \"Conjunct 1 (every 4.1.5-matching line in shadow-review.md names phase-4-verdict.md) HOLDS: grep -n '4\\\\.1\\\\.5' docs/internal/shadow-review.md returns exactly 4 lines (503, 505, 507, 509), and each one also contains the literal 'phase-4-verdict.md'. Conjunct 2 (phase-4-verdict.md states the over-grade shapes by pointer rather than enumerating them) FAILS: skills/review/phases/phase-4-verdict.md section '### 4.1.5 Over-grade advisory annotation' (line 122) opens by declaring itself 'the single source of truth for the over-grade shape definitions' (line 124) and then directly enumerates the three numbered shapes with full prose definitions at lines 128-130 ('1. Suite-RED or fail-closed defect graded above its blast radius...', '2. Diagnostic-or-cosmetic-only finding with no behavioral fail-direction...', '3. Uncorroborated single-source finding from an empirical over-grader...'), plus the behavior-inert prose cap (lines 132-143). It is the enumeration itself, not a pointer to one elsewhere.\", \"file_checked\": \"skills/review/phases/phase-4-verdict.md:122-149\", \"property_proven\": false, \"inaccuracy_scope\": \"generated_claim_text\"}"
+  },
+  {
+   "item": {
+    "id": "VC-5",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-5-n5d10a.json",
+   "response_text": "{\"id\": \"VC-5\", \"verdict\": \"PASS\", \"evidence\": \"Verified both conjuncts named in the claim text. (1) Mechanical-corroboration sentence, DEVFLOW_SYSTEM_OVERVIEW.md:546: \\\"findings are matched by `defect_signature`; the matching rule is defined in `skills/review/phases/phase-3-agents.md` Phase 3.2\\\" \\u2014 points by pointer at phase-3-agents.md, does not enumerate the tuple fields. (2) defect_signature glossary row, DEVFLOW_SYSTEM_OVERVIEW.md:1165: \\\"The tuple used to mechanically corroborate findings across reviewers; `skills/review/phases/phase-3-agents.md` Phase 3.2 defines its fields and the corroboration rule over them.\\\" \\u2014 also points at phase-3-agents.md rather than enumerating the tuple. Both hold as claimed. (Note: the adjacent 4.1.5 over-grade-shapes bullet at line 552 points instead at `skills/review/phases/phase-4-verdict.md`, a different pointer for a different concept \\u2014 the over-grade shapes, not defect_signature matching \\u2014 but the claim text itself names only the Mechanical-corroboration sentence and the glossary row, not the 4.1.5 bullet, so this does not affect the verdict.)\", \"file_checked\": \"docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md:546,1165\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-6",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-6-split.json",
+   "response_text": "{\"id\": \"VC-6\", \"verdict\": \"PASS\", \"evidence\": \"git diff origin/main...HEAD --name-only does not list skills/review-and-fix/references/pre-fix-gates.md, and a targeted `git diff origin/main...HEAD -- skills/review-and-fix/references/pre-fix-gates.md` produces no output, confirming the file appears in no hunk of the branch diff and is byte-identical after the change.\", \"file_checked\": \"skills/review-and-fix/references/pre-fix-gates.md\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-7",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-7-split.json",
+   "response_text": "{\"id\": \"VC-7\", \"verdict\": \"PASS\", \"evidence\": \"git diff origin/main...HEAD --name-only does not list CHANGELOG.md, and a targeted `git diff origin/main...HEAD -- CHANGELOG.md` produces no output, confirming the file appears in no hunk of the branch diff and is byte-identical after the change.\", \"file_checked\": \"CHANGELOG.md\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-8",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-8-split.json",
+   "response_text": "{\"id\": \"VC-8\", \"verdict\": \"PASS\", \"evidence\": \"Independently re-hashed skills/review-and-fix/references/shadow-review.md with `shasum -a 256`, yielding 9f1396f475d40ade5a974a7833d09940ccb7f4ee820047e686062574d220a9da, which matches the manifest entry at scripts/devflow-cloud-writer-contract.json's `files` map for that path exactly. `python3 lib/test/cloud_writer_contract.py verify` also reports 'cloud-writer-contract: manifest matches closure', confirming the pinned hash is the true sha256 of the post-change bytes.\", \"file_checked\": \"scripts/devflow-cloud-writer-contract.json\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-9",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-9-split.json",
+   "response_text": "{\"id\": \"VC-9\", \"verdict\": \"PASS\", \"evidence\": \"`git diff 2a82941a6~1 2a82941a6 -- scripts/devflow-cloud-writer-contract.json` shows exactly one line changed in the manifest's `files` map -- the skills/review-and-fix/references/shadow-review.md entry -- with every other entry byte-identical to the prior commit. `python3 lib/test/cloud_writer_contract.py verify` independently confirms 'cloud-writer-contract: manifest matches closure', i.e. every pinned hash (not just shadow-review.md's) currently matches its file's actual bytes, so no other entry silently drifted or needed regeneration.\", \"file_checked\": \"scripts/devflow-cloud-writer-contract.json\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-10",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-10-split.json",
+   "response_text": "{\"id\": \"VC-10\", \"verdict\": \"PASS\", \"evidence\": \"skills/review-and-fix/references/shadow-review.md:225 points to 'skills/review/phases/phase-4-verdict.md Phase 4.1.5 (*Over-grade advisory annotation*)'. skills/review/phases/phase-4-verdict.md:122 contains the heading '### 4.1.5 Over-grade advisory annotation (advisory for shapes 1/3 + shape 2 the limbs do not cover; a deterministic verdict cap \\u2014 the behavior-inert prose cap)', which defines the over-grade shapes and the behavior-inert prose cap's fail-direction qualifications (lines 122-231 of that file), matching the pointer's claim.\", \"file_checked\": \"skills/review/phases/phase-4-verdict.md:122\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-11",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-11-split.json",
+   "response_text": "{\"id\": \"VC-11\", \"verdict\": \"PASS\", \"evidence\": \"skills/review-and-fix/references/shadow-review.md:94 points to 'the Phase 3.2 defect_signature corroboration rule in skills/review/phases/phase-3-agents.md'. That file's section '### 3.2 Collect results' begins at line 202, and line 358 states the corroboration rule verbatim: 'Two findings corroborate iff they have the same defect_signature.file, overlapping defect_signature.line_range (treat null as overlapping any range in the same file when kind matches), AND identical defect_signature.kind.' This confirms both the section and the null line_range clause the claim describes.\", \"file_checked\": \"skills/review/phases/phase-3-agents.md:358\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-12",
+    "verification_mode": "agent",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "(the fix loop already reads `skills/review/phases/phase-4-verdict.md` at runtime to run Phases 0\u20134.3, so the shapes are in context)"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-12-n1b8f4.json",
+   "response_text": "{\"id\": \"VC-12\", \"verdict\": \"PASS\", \"evidence\": \"Traced the actual read path. skills/review/SKILL.md's Phase routing table (line 346) lists `4 | phase-4-verdict.md | always | verdict, report, telemetry` \\u2014 Phase 4 is loaded unconditionally, unlike the gated 0.3.6/0.6/4.1.7/4.4 rows. The 'Entry-gate (mandatory, on every phase entry ... and every shadow entry, as /prflow:review-and-fix Step 2.6 re-enters this engine)' rule (skills/review/SKILL.md ~line 316) requires re-deriving root identity, Reading the phase's own reference, and clearing the boundary contract on every phase entry including Phase 4's. skills/review-and-fix/SKILL.md line 79 and references/loop-control.md line 176 both state the fix loop executes the engine's 'Phases 0 through 4.3 verbatim' with no paraphrase, and references/shadow-review.md line 41 confirms the parent orchestrator itself re-runs 'Phases 0 through 4.3 ... Read its SKILL.md in full, and execute its phases inline' for the Step 2.6 shadow pass. Phase 4's own sub-steps 4.1, 4.1.5 (Over-grade advisory annotation, the canonical shape definition the gate's parenthetical points at), 4.2, and 4.3 ('### 4.3 Present the report', phase-4-verdict.md line 211) all live inside the single phase-4-verdict.md file. Only Phase 4.4 (phase-4-4-github-post.md) is explicitly skipped by review-and-fix per the routing table's own note ('/prflow:review-and-fix skips 4.4 entirely \\u2014 shadow passes included') and loop-control.md line 192. So 'Phases 0 through 4.3' necessarily includes a full Read of phase-4-verdict.md (Phase 4 is a single reference file whose internal sub-step numbering runs 4.0-4.3; 4.4 is the only carved-out sub-step, in a separate file), confirming the repaired parenthetical's claim that the fix loop already reads phase-4-verdict.md at runtime, so the over-grade shapes are in context when the Step 2.6 calibration gate consumes them.\", \"file_checked\": \"skills/review/SKILL.md:316-347 and skills/review/phases/phase-4-verdict.md:122-211\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-13",
+    "verification_mode": "agent",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "Read that section for the canonical definition and apply it as written \u2014 a paraphrase here drops operands and reads an already-recorded finding as new."
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-13-split.json",
+   "response_text": "{\"id\": \"VC-13\", \"verdict\": \"PASS\", \"evidence\": \"shadow-review.md:94 reads: 'A shadow finding is new iff no finding in the last iter's phase3_findings matches it under the Phase 3.2 defect_signature corroboration rule in skills/review/phases/phase-3-agents.md. Read that section for the canonical definition and apply it as written \\u2014 a paraphrase here drops operands and reads an already-recorded finding as new.' The canonical rule at phase-3-agents.md:358 is: 'Two findings corroborate iff they have the same defect_signature.file, overlapping defect_signature.line_range (treat null as overlapping any range in the same file when kind matches), AND identical defect_signature.kind.' Tracing a line_range:null shadow finding: applying the canonical rule as written, a null line_range on either side of the comparison is treated as overlapping any range in the same file once kind matches, so a last-iter finding with line_range:null (or a shadow finding with line_range:null) that shares file+kind pairs as overlap/corroboration rather than reading as new. The repaired sentence correctly points to that canonical section and no longer contains its own truncated operand list (confirmed: shadow-review.md contains no other 'same file + overlapping line_range + identical kind' paraphrase). So the claim \\u2014 that applying the canonical rule as written (rather than the removed paraphrase) prevents an already-recorded null-line_range finding from misreading as new \\u2014 holds against the tree.\", \"file_checked\": \"skills/review/phases/phase-3-agents.md:358\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-14",
+    "verification_mode": "agent",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "so a `line_range: null` finding the previous iteration already recorded no longer reads as new and no longer promotes a spurious iteration that could surface as `APPROVE WITH UNRESOLVED SHADOW FINDINGS`."
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-14-split.json",
+   "response_text": "{\"id\": \"VC-14\", \"verdict\": \"PASS\", \"evidence\": \"The changeset's claim matches the shadow-review.md:94 fix (see VC-13). Searched skills/review-and-fix/** for surviving restatements keying shadow novelty off a local paraphrase of the corroboration operands: the only other 'file + overlapping line_range' operand list in the bundle is pre-fix-gates.md:44 ('identify sites by Phase 3.2's file plus overlapping line_range against registered findings and earlier sweep entries. Treat kind as a matching input, never as cross-producer identity...'). That site is NOT the shadow's new-vs-overlap novelty test the changeset is about \\u2014 it governs parked-class-sweep sibling dedup/ledger identity (a different mechanism, registered into phase3_findings before the shadow ever runs), and issue #1406's own AC6 explicitly requires it stay byte-identical, calling its shorter operand list 'a deliberate narrowing its own next sentence depends on.' It does not drive the shadow's Decide-outcome routing or the APPROVE WITH UNRESOLVED SHADOW FINDINGS verdict, so its narrower operand set does not falsify the changeset's claim about the shadow novelty rule. convergence.md:9 ('No new corroborated/confirmed Critical or Important finding') and shadow-review.md's other corroboration-adjacent passages (194, 196, 207) build on the shadow's comparison result via markers/dispositions rather than re-deriving the file+line_range+kind operand tuple themselves. No remaining fix-loop path independently keys the shadow's new/overlap determination off a truncated local paraphrase; all routes to that determination now flow through the shadow-review.md:94 pointer to the canonical phase-3-agents.md rule.\", \"file_checked\": \"skills/review-and-fix/references/pre-fix-gates.md:44\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-15",
+    "verification_mode": "agent",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "**Phase 4.1.5 is the authoritative definition of behavior-inertness \u2014 its two limbs are not restated here.**"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-15-split.json",
+   "response_text": "{\"id\": \"VC-15\", \"verdict\": \"PASS\", \"evidence\": \"Both docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md:552 and docs/internal/shadow-review.md:507 retain the exact sentence 'Phase 4.1.5 is the authoritative definition of behavior-inertness \\u2014 its two limbs are not restated here' (with a `skills/review/phases/phase-4-verdict.md` prefix in each). Grepping both files for 'limb' shows only references TO the two limbs (e.g. 'the limbs still decide each such finding and they fail closed when inertness cannot be established', 'under the two limbs') -- neither file restates what the two limbs actually are (no numbered/enumerated limb-1/limb-2 definition appears in either file). The actual limb definitions live only in skills/review/phases/phase-4-verdict.md, which is the file the sentence points to.\", \"file_checked\": \"docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md:552; docs/internal/shadow-review.md:507\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-16",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-16-split.json",
+   "response_text": "{\"id\": \"VC-16\", \"verdict\": \"PASS\", \"evidence\": \"The changeset .changeset/issue-1406-review-engine-cross-references.md has frontmatter `bump: patch` and `type: Fixed`. scripts/consolidate-changesets.py requires a 'bump:' key whose lowercased value is in VALID_BUMPS (patch/minor/major derived set at line 73-77) and an optional 'type:' matched case-insensitively against CANONICAL_TYPES = [\\\"Added\\\", \\\"Changed\\\", \\\"Deprecated\\\", \\\"Removed\\\", \\\"Fixed\\\", \\\"Security\\\"] (line 80). 'patch' and 'Fixed' both satisfy these; the file does not use the npm-style `\\\"prflow\\\": patch` form.\", \"file_checked\": \"scripts/consolidate-changesets.py:73-185\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-17",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-17-split.json",
+   "response_text": "{\"id\": \"VC-17\", \"verdict\": \"PASS\", \"evidence\": \"Diffed the two added lines (skills/review-and-fix/references/shadow-review.md lines 94 and 225 on HEAD) against origin/main. Both now read `skills/review/phases/phase-3-agents.md` and `skills/review/phases/phase-4-verdict.md` respectively -- bare repository-relative, backticked paths, matching the prevailing convention used throughout skills/review-and-fix/ (e.g. `skills/review/SKILL.md` in loop-control.md:35, pre-fix-gates.md:40, fixing.md:24, fix-delta-gate.md:9, loop-exit.md:76, and shadow-review.md:39 itself). Neither line references docs/internal/, a vendored/anchor-relative form (.prflow/vendor/... or ${CLAUDE_SKILL_DIR}), a `#<issue>` number, an `AC<n>` citation, or CLAUDE.md. The prior (replaced) text used `/prflow:review`'s SKILL.md prose-pointer form instead of the bare path -- the repair moved to the bare-path convention consistently.\", \"file_checked\": \"skills/review-and-fix/references/shadow-review.md:94,225\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-18",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-18-split.json",
+   "response_text": "{\"id\": \"VC-18\", \"verdict\": \"PASS\", \"evidence\": \"lib/test/run.sh:2432-2436 pins the two literals 'behavior-inert prose cap (review 4.1.5)' and 'cannot drive a Decide-outcome-2 promotion' against $MAXI_SKILL, which is built from skills/review-and-fix/SKILL.md concatenated with all skills/review-and-fix/references/*.md files (including shadow-review.md) via _build_skill_bundle (run.sh:1238-1263). Concatenating skills/review-and-fix/SKILL.md and skills/review-and-fix/references/*.md and grepping the two literals shows each occurs exactly once, both inside skills/review-and-fix/references/shadow-review.md:1474 ('the behavior-inert prose cap (review 4.1.5) ... cannot drive a Decide-outcome-2 promotion'). No second occurrence exists anywhere else in the bundle, so the edits under review (which only reworded pointers in shadow-review.md's fix-loop-side content, e.g. lines 91 and 231-232 per `git diff HEAD~5`) did not duplicate either uniqueness-pinned literal.\", \"file_checked\": \"lib/test/run.sh:2432-2436\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-19",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-19-split.json",
+   "response_text": "{\"id\": \"VC-19\", \"verdict\": \"PASS\", \"evidence\": \"docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md:546 states 'the matching rule is defined in skills/review/phases/phase-3-agents.md Phase 3.2' and the glossary row at line 1165 repeats 'skills/review/phases/phase-3-agents.md Phase 3.2 defines its fields and the corroboration rule over them'. In skills/review/phases/phase-3-agents.md the only section headings are '## Phase 3: Existing Review Agents' (line 2), '### 3.1 Launch existing review agents in parallel' (line 6), '### 3.1.5 Completeness-critic pass' (line 189), and '### 3.2 Collect results' (line 202, running to end of file). The mechanical corroboration rule ('Two findings corroborate iff they have the same defect_signature.file, overlapping defect_signature.line_range ... AND identical defect_signature.kind') is at lines 356-360, which fall within section 3.2's span (202-end). Both citations correctly name Phase 3.2.\", \"file_checked\": \"skills/review/phases/phase-3-agents.md:202,356-360\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-20",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-20-split.json",
+   "response_text": "{\"id\": \"VC-20\", \"verdict\": \"FAIL\", \"evidence\": \"Diffing against origin/main confirms the inline over-grade shape enumeration was deleted from DEVFLOW_SYSTEM_OVERVIEW.md line 552 (the old text listed 'a defect the suite catches RED or that fails closed, a diagnostic-or-cosmetic-only finding with no behavioral fail-direction, or an uncorroborated single-source Critical/Important...'; the new text just says 'flags any that match an observable over-grade shape; `skills/review/phases/phase-4-verdict.md` states the shapes and their fail-direction qualifications'). The same bullet still uses the bare ordinals 'shapes 1/3', 'non-inert shape 2', and 'shape 2's *behavior-inert prose* sub-case' later in the same paragraph WITHOUT any local (same-file) enumeration defining what shape 1, 2, or 3 mean -- so strictly, those ordinals now have NO local antecedent in DEVFLOW_SYSTEM_OVERVIEW.md, exactly as the claim's own trailing clause states. This directly contradicts the claim's leading assertion 'did not orphan'. Mitigating factor: the same sentence that first uses the ordinals immediately follows with 'the single source of truth for the over-grade shape definitions' pointing to skills/review/phases/phase-4-verdict.md, and I confirmed that target file DOES define shapes 1/2/3 explicitly (phase-4-verdict.md:122,128,132,145 -- an enumerated list with 'Shapes 1 and 3 stay advisory-only', etc.), so a reader is not left with a dangling/undefined reference, only one requiring a cross-file lookup. This is intentional single-sourcing (matching the paragraph's own 'single source of truth' framing and the repo's documented single-sourcing convention), not an accidental orphaning bug -- but it does NOT satisfy the claim's literal assertion that the sentences were 'not orphaned' while simultaneously admitting 'no antecedent in the file'; those two clauses are in tension and the checkable fact (no local antecedent) is true, so 'did not orphan' as stated is not established.\", \"file_checked\": \"docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md:552; skills/review/phases/phase-4-verdict.md:122-145\", \"property_proven\": false, \"inaccuracy_scope\": \"generated_claim_text\"}"
+  },
+  {
+   "item": {
+    "id": "VC-21",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-21-split.json",
+   "response_text": "{\"id\": \"VC-21\", \"verdict\": \"FAIL\", \"evidence\": \"Diffing against origin/main confirms docs/internal/shadow-review.md's over-grade bullet (line 503) lost its inline three-shape enumeration ('a defect that fails closed or that the suite catches RED, a diagnostic-or-cosmetic-only finding..., and an uncorroborated single-source Critical/Important... and, crucially, a defect that fails open never matches the first shape...'), replaced by a pointer: 'read the shapes and their fail-direction qualifications there' (skills/review/phases/phase-4-verdict.md). Checking the three quotes the claim says still survive: (1) 'shape 2's behavior-inert sub-case' DOES survive, now at line 507 ('Shape 2's behavior-inert sub-case is a *classification* rule...'). (2) 'suspected over-grade: shape *n*' DOES survive, at line 505 ('it appends a \\\"suspected over-grade: shape *n* \\u2014 observable fail-direction is *X*\\\" note...'). (3) 'never matches the first shape' does NOT survive -- grep -in 'first shape' docs/internal/shadow-review.md returns no match (exit 1); that entire clause was deleted along with the rest of the enumeration bullet, not merely left dangling. So the claim is factually wrong about content survival for its third quoted phrase: it was removed, not retained-but-orphaned. The two surviving quotes do lack a local (same-file) shape-1/2/3 definition post-edit -- the file only points to skills/review/phases/phase-4-verdict.md ('whose single definition lives in the shared engine... read the shapes... there') -- which does define them, so this is the same intentional single-sourcing pattern as DEVFLOW_SYSTEM_OVERVIEW.md, not a dangling reference, but the claim's specific enumerated survival list is inaccurate.\", \"file_checked\": \"docs/internal/shadow-review.md:498-513\", \"property_proven\": false, \"inaccuracy_scope\": \"generated_claim_text\"}"
+  },
+  {
+   "item": {
+    "id": "VC-22",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-22-split.json",
+   "response_text": "{\"id\": \"VC-22\", \"verdict\": \"PASS\", \"evidence\": \"git show 2a82941a6 -- docs/internal/shadow-review.md confirms the fail-direction qualification ('a defect that fails open never matches the first shape no matter that its limitation is documented or its trigger input contrived, because \\\"documented\\\" and \\\"contrived\\\" are disclosure facts, not severity facts') was removed from docs/internal/shadow-review.md (previously at line ~503) and replaced with a pointer: 'read the shapes and their fail-direction qualifications there' pointing to skills/review/phases/phase-4-verdict.md Phase 4.1.5. Grepping skills/review/phases/phase-4-verdict.md confirms the qualification is genuinely present verbatim at line 128: 'A fail-open defect is never this shape ... \\\"Documented\\\" and \\\"contrived\\\" are disclosure facts, not severity facts: contrivedness argues for the guard, never for demoting the severity of its failing open.' The pointer therefore preserves the fact rather than losing it.\", \"file_checked\": \"skills/review/phases/phase-4-verdict.md:128\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  },
+  {
+   "item": {
+    "id": "VC-23",
+    "verification_mode": "agent",
+    "claim_provenance": "generated_paraphrase"
+   },
+   "verdict_path": ".prflow/tmp/review/worktree-issue-1406/local-20260807T224714Z-1/verdicts/iter-1/VC-23-split.json",
+   "response_text": "{\"id\": \"VC-23\", \"verdict\": \"PASS\", \"evidence\": \"`git ls-files .changeset/` on this branch lists only .changeset/README.md and .changeset/issue-1406-review-engine-cross-references.md. `git ls-tree origin/main .changeset/` lists only .changeset/README.md -- no other pending changesets exist on main to collide with. The filename is therefore unique among pending changesets and introduces no merge/consolidation collision.\", \"file_checked\": \".changeset/issue-1406-review-engine-cross-references.md\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}"
+  }
+ ]
+}
