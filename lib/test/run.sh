@@ -50043,6 +50043,12 @@ AF_RED_OUT="$(python3 "$AF_LINT" --root "$AF_FX/red" 2>&1)"; AF_RED_RC=$?
 assert_eq "#1124 lint: an anchor-only enrolled site is reported (RED, non-vacuous)" "1" "$AF_RED_RC"
 assert_eq "#1124 lint: the RED report names the enrolled call site" "yes" \
   "$(case "$AF_RED_OUT" in *"skills/review/SKILL.md: 'load-prompt-extension.sh review' is invoked via the unexpanded"*) echo yes ;; *) echo no ;; esac)"
+# issue #1432: the anchor-only detection path must fire for a NEWLY-enrolled non-review
+# site too, so the drift guarantee is non-vacuous for the four sites this issue enrolls
+# (a future path-shaped filter that skipped docs-*/pr-description bodies would otherwise
+# pass unnoticed). The red fixture carries pr-description in anchor-only form for this.
+assert_eq "#1124 lint: the RED report names a newly-enrolled non-review site (pr-description)" "yes" \
+  "$(case "$AF_RED_OUT" in *"skills/pr-description/SKILL.md: 'load-prompt-extension.sh pr-description' is invoked via the unexpanded"*) echo yes ;; *) echo no ;; esac)"
 # GREEN fixture: both forms present at every enrolled site → rc=0.
 assert_eq "#1124 lint: a both-forms enrolled site passes (GREEN)" "yes" \
   "$(python3 "$AF_LINT" --root "$AF_FX/green" >/dev/null 2>&1 && echo yes || echo no)"
