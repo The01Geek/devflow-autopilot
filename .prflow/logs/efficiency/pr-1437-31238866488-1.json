@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1437",
+  "generated_at": "2026-08-08T04:15:45Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.40",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.0492074999999996,
+    "tokens": {
+      "input_tokens": 20,
+      "output_tokens": 13230,
+      "cache_read_input_tokens": 1071755,
+      "cache_creation_input_tokens": 118248,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 20,
+        "outputTokens": 13230,
+        "cacheReadInputTokens": 1071755,
+        "cacheCreationInputTokens": 118248,
+        "webSearchRequests": 0,
+        "costUSD": 2.0492074999999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 15,
+    "duration_ms": 197952
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"=== new deferred-review-findings.md: awk region bullet count (PR head) ===\"; git show b5482e5:skills/implement/references/deferred-review-findings.md | awk '/exits before any label is applied/,/^If the printed/' | grep -c '^- \\*\\*'\necho \"=== new shipped intro line ===\"; git show b5482e5:skills/implement/references/deferred-review-findings.md | grep -n \"exits before any label is applied\"\necho \"=== --mark-deferred-filed count in deferred-ac-followups (PR head) — pin expects 3 ===\"; git show  …[per-command-truncated]",
+      "echo \"=== awk region bullet count (PR head) ===\"; git show b5482e5:skills/implement/references/deferred-review-findings.md | awk '/exits before any label is applied/,/^If the printed/' | grep -c '^- \\*\\*'\necho \"=== new shipped intro line (head) ===\"; git show b5482e5:skills/implement/references/deferred-review-findings.md | grep -n \"exits before any label is applied\"\necho \"=== --mark-deferred-filed count (head) — pin expects 3 ===\"; git show b5482e5:skills/implement/references/deferred-ac-follow …[per-command-truncated]"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
