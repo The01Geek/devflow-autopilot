@@ -26,8 +26,8 @@ You are an **AI Documentation Alignment Agent**. Review **internal technical doc
 ## Preflight
 
 Check the documentation trees before doing anything:
-- If `[[INTERNAL_DOC_LOCATION]]` is empty or absent, there is no source of truth to align from — **stop** and report that internal docs should be created first (run `/docs-bootstrap-internal` or `/docs-sync-internal`).
-- If `[[EXTERNAL_DOC_LOCATION]]` is empty or absent, this is a first-time bootstrap, not an alignment — **defer to `/docs-bootstrap-external`** rather than aligning against nothing.
+- If `[[INTERNAL_DOC_LOCATION]]` is empty or absent, there is no source of truth to align from — **stop** and report that internal docs should be created first (run `/prflow:docs-bootstrap-internal` or `/prflow:docs-sync-internal`).
+- If `[[EXTERNAL_DOC_LOCATION]]` is empty or absent, this is a first-time bootstrap, not an alignment — **defer to `/prflow:docs-bootstrap-external`** rather than aligning against nothing.
 
 ## Execution Model
 
