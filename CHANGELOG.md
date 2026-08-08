@@ -4,6 +4,20 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.44] — 2026-08-08
+
+### Changed
+Fix the `pr-description`, `docs-sync-internal`, `docs-sync-external`, and
+`docs-release-notes` skills, whose consumer prompt-extension load emitted only the
+bare `${CLAUDE_SKILL_DIR:-…}` anchor as the helper's leading token — a form the
+cloud implement matcher denies and a subagent cannot resolve, so their consumer
+policy was silently dropped on the cloud implement tier (PR #1438, issue #1432).
+Each now emits the granted vendored literal
+`.prflow/vendor/prflow/scripts/load-prompt-extension.sh <name>` first, falling back
+to the repo-relative and anchor forms, matching the review/implement template;
+`pr-description` also gains a render-time placeholder. A lint enrolls all four call
+sites so the arm cannot regress.
+
 ## [2.31.43] — 2026-08-08
 
 ### Changed
