@@ -470,11 +470,9 @@ python3 $LIB/../scripts/build-experiment-records.py || \
 The assembler is idempotent (one line per merged PR, keyed by PR number) and incremental
 (it processes merged PRs absent from `.prflow/learnings/experiment-records.jsonl` plus
 any passed via `--prs`, never a full-history sweep), so re-running is safe and cheap. It
-runs on the **local/interactive retrospective tier only** — it is never invoked from a
-workflow. Because the store is keyed on merged PRs, an abandoned run contributes no cost
-row, so the cost side carries a survivorship bias. That is deliberate, not a defect to
-correct — the experiment measures cost-vs-outcome for PRs that shipped. The record's own
-shape is documented in `scripts/build-experiment-records.py`'s module docstring.
+runs on the **local/interactive retrospective tier only** — never from a workflow. The
+record's own shape is documented in `scripts/build-experiment-records.py`'s module
+docstring.
 
 ---
 
@@ -1131,15 +1129,11 @@ DECLINED_REFILED_JSON="$(devflow_declined_refiled .prflow/tmp/overrides-prefilin
 # `withheld` array uses. `[]` at minimum on a run that truncated nothing.
 TRUNCATIONS_JSON="$(printf '%s\n' "${truncations[@]:-}" | $LIB/../scripts/run-jq.sh -sc 'map(select(. != null))')"
 
-# Filing-queue aggregate operands, derived HERE in Step 9 reusing NO
-# Step 8 binding: the line reports the LIVE post-filing queue, while Step 8c's
-# OPEN_TOTAL/MAX_OPEN were a per-iteration PRE-filing snapshot that was already
-# stale by the time the report renders. N = open filed meta-issue entries via
-# devflow_open_filed_total (never recomputed inline); M = resolved max_open_issues.
-# Both are passed as --arg STRINGS (below), so an UNESTABLISHED value is the empty
-# string — rendered `unavailable`, never laundered to 0. devflow_open_filed_total
-# prints NOTHING (not 0) when unestablished, which is exactly that empty string;
-# neither operand is :?-guarded, because empty is a valid "unavailable" state here.
+# Filing-queue aggregate operands, derived HERE in Step 9 (not reusing Step 8c's
+# OPEN_TOTAL/MAX_OPEN, a stale pre-filing snapshot): N = open filed meta-issue entries
+# via devflow_open_filed_total, M = resolved max_open_issues. Both pass as --arg
+# STRINGS, so an unestablished value is the empty string — rendered `unavailable`,
+# never laundered to 0; neither is :?-guarded, because empty is a valid state here.
 FILING_QUEUE_OPEN="$(devflow_open_filed_total .prflow/learnings/overrides.json)"
 FILING_QUEUE_MAX="$(bash $LIB/../scripts/config-get.sh '.prflow_retrospective.max_open_issues' 10)"
 ```
@@ -1178,12 +1172,10 @@ printf '%s' "$PATTERNS_JSON"                > "$_SUMMARY_TMP/patterns.json"
 printf '%s' "$RECURRING_TARGETS_JSON"       > "$_SUMMARY_TMP/recurring_targets.json"
 printf '%s\n' "${intervention_issues[@]:-}" | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/intervention_issues.json"
 printf '%s\n' "${cooldown_skipped[@]:-}"    | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/cooldown_skipped.json"
-# blockers carry RAW PROSE (every `blockers+=(…)` append is a plain string), so
-# they are slurped with the raw `-sRc split` shape `skips` uses — NOT the JSON
-# `-sc '.'` slurp, under which a non-empty prose element is a jq parse error that
-# leaves blockers.json empty and trips the Step 9 empty-file guard, aborting the
-# run and losing every blocker (Step 8a now adds frequently-reached
-# blocker paths, making this pre-existing latent defect reachable on ordinary runs).
+# blockers carry RAW PROSE, so slurp them with the raw `-sRc split` shape (like
+# `skips`), NOT the JSON `-sc '.'` slurp — under which a prose element is a jq parse
+# error that empties blockers.json, trips the empty-file guard, and aborts the run,
+# losing every blocker.
 printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))' > "$_SUMMARY_TMP/blockers.json"
 # withheld_patterns: each {tag, cap} the Step-8 caps held back, and
 # declined_refiled: the slugs whose meta-issue was previously closed NOT_PLANNED.
@@ -1191,16 +1183,11 @@ printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sRc 'sp
 printf '%s' "$WITHHELD_JSON"                > "$_SUMMARY_TMP/withheld_patterns.json"
 printf '%s' "$DECLINED_REFILED_JSON"        > "$_SUMMARY_TMP/declined_refiled.json"
 printf '%s' "$TRUNCATIONS_JSON"             > "$_SUMMARY_TMP/truncations.json"
-# Same fail-loud property for the four INLINE producers above. Their `> file` redirect
-# truncates the file before the pipeline runs, so a failing jq leaves the file EMPTY.
-# The reachable causes differ by slurp shape: an unresolvable jq binary fails all four,
-# while a malformed element is a parse error only under the JSON `-sc '.'` shape
-# (intervention_issues, cooldown_skipped) — the raw `-sRc split` shape (skips,
-# blockers) takes its elements as text and cannot parse-error on them. An empty --slurpfile
-# operand is []→[0]=null, silently emitting skips/blockers:null where --argjson aborted
-# loud. On success each writes at minimum `[]` (non-empty), so an empty file is
-# unambiguously producer failure. Guard by file, not by variable, because these operands
-# never pass through a shell variable.
+# Same fail-loud property for the four INLINE producers above: their `> file` redirect
+# truncates before the pipeline runs, so a failing jq leaves the file EMPTY, while on
+# success each writes at minimum `[]` — so an empty file is unambiguously producer
+# failure. Guard by file, not by variable, because these operands never pass through a
+# shell variable.
 for _op in skips intervention_issues cooldown_skipped blockers; do
   [ -s "$_SUMMARY_TMP/$_op.json" ] || {
     echo "devflow retrospective Step 9: $_op.json is empty — its inline jq producer failed" >&2
