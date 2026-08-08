@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1433",
+  "generated_at": "2026-08-08T04:59:58Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.42",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.789108,
+    "tokens": {
+      "input_tokens": 45,
+      "output_tokens": 19216,
+      "cache_read_input_tokens": 2885446,
+      "cache_creation_input_tokens": 132503,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 51,
+        "outputTokens": 24004,
+        "cacheReadInputTokens": 2981246,
+        "cacheCreationInputTokens": 192199,
+        "webSearchRequests": 0,
+        "costUSD": 3.789108,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 357890
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR:-<unset>}\"; git rev-parse --show-toplevel; gh pr view 1433 --json number,title,headRefOid,baseRefName,headRefName,state,url,author 2>&1 | head -50",
+      ".prflow/vendor/prflow/scripts/post-review-verdict.sh --help 2>&1 | head -40 || scripts/post-review-verdict.sh --help 2>&1 | head -40",
+      "scripts/post-review-verdict.sh --help 2>&1 | head -50",
+      "scripts/post-review-verdict.sh 1433 APPROVE .prflow/tmp/review/pr-1433/local-run/verdict.md e04031e838ecd3527feded8adcb24d34db92f3bb ; echo \"post-rc=$?\"",
+      "scripts/post-review-verdict.sh 1433 APPROVE .prflow/tmp/review/pr-1433/local-run/verdict.md e04031e838ecd3527feded8adcb24d34db92f3bb",
+      "printf '%s\\n' '<!-- prflow:review-verdict head=e04031e838ecd3527feded8adcb24d34db92f3bb verdict=APPROVE -->' > .prflow/tmp/review/pr-1433/local-run/verdict-marked.md\ncat .prflow/tmp/review/pr-1433/local-run/verdict.md >> .prflow/tmp/review/pr-1433/local-run/verdict-marked.md\njq -n --rawfile b .prflow/tmp/review/pr-1433/local-run/verdict-marked.md '{event:\"APPROVE\",commit_id:\"e04031e838ecd3527feded8adcb24d34db92f3bb\",body:$b}' > .prflow/tmp/review/pr-1433/local-run/review-payload.json\ngh api -X P …[per-command-truncated]"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
