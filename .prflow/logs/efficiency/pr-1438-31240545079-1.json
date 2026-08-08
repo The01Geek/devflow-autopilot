@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1438",
+  "generated_at": "2026-08-08T05:02:49Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.42",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.1845735,
+    "tokens": {
+      "input_tokens": 33,
+      "output_tokens": 14732,
+      "cache_read_input_tokens": 1948205,
+      "cache_creation_input_tokens": 116262,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 43,
+        "outputTokens": 22830,
+        "cacheReadInputTokens": 2148177,
+        "cacheCreationInputTokens": 176566,
+        "webSearchRequests": 0,
+        "costUSD": 3.1845735,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 343286
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-unset}\"; echo \"---\"; ls skills/review/phases/ 2>&1",
+      "sed -n '1,60p' scripts/post-review-verdict.sh 2>&1 | grep -iE \"usage|argument|verdict|APPROVE|head|marker|\\\\$1|\\\\$2|\\\\$3\" | head -30",
+      "scripts/post-review-verdict.sh 1438 APPROVE .prflow/tmp/review/pr-1438/verdict-body.md d093e98fad47b27af84eb062501703fafb347c6f 2>&1; echo \"post-rc=$?\""
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
