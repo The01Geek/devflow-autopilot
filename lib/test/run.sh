@@ -49775,10 +49775,11 @@ assert_eq "#1402 lint fail-closed: no loop naming a workflow path refuses, namin
 assert_eq "#1402 lint fail-closed: a variable-only candidate loop refuses, naming install.sh" "yes" \
   "$(case "$(sp_neverset "$SP_FX/installs/variable-only-loop.sh" "$SP_WORKFLOWS_FX")" in "rc=1|"*"variable-only-loop.sh"*"declares a literal workflow name"*) echo yes ;; *) echo no ;; esac)"
 # Issue #1423: the DECISION, pinned at the derivation. The withheld tier ships nothing, so
-# the lint does not read DEVFLOW_WITHHELD_TIER at all and its members stay forbidden. Both
-# fixtures declare a withheld tier the shipped set must ignore — `no-withheld.sh` declares
-# none and `empty-withheld.sh` declares an empty one, and each still derives the copy-loop
-# complement rather than refusing. Re-reading the declaration turns all three RED.
+# the lint does not read DEVFLOW_WITHHELD_TIER at all and its members stay forbidden.
+# Neither fixture's declaration shape — absent in `no-withheld.sh`, empty in
+# `empty-withheld.sh` — can change the derived set, so each still derives the copy-loop
+# complement rather than refusing. Re-reading the declaration would turn these two and the
+# duplicated-declaration case further below RED.
 assert_eq "#1402/#1423 lint: an absent DEVFLOW_WITHHELD_TIER does not refuse (the lint does not read it)" \
   "rc=0|alpha beta internal-only probe" \
   "$(sp_neverset "$SP_FX/installs/no-withheld.sh" "$SP_WORKFLOWS_FX")"
@@ -49891,13 +49892,25 @@ root = Path.cwd()
 spec = importlib.util.spec_from_file_location("shipped_pruned_path", sys.argv[1])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
-established = mod._establish_never_shipped(
+never_shipped = mod._establish_never_shipped(
     root / mod.DEFAULT_INSTALL_REL, root / mod.DEFAULT_WORKFLOWS_REL
 )
-if established is None:
+if never_shipped is None:
     print("DERIVATION-REFUSED")
     raise SystemExit(2)
-matcher = mod._never_shipped_matcher(established[0])
+# Guard the SHAPE before building the matcher. `_never_shipped_matcher` joins its argument
+# by iteration, so a bare string silently degenerates the pattern to single-character
+# stems and this gate goes green while matching nothing — the exact fail-open the comment
+# above describes, reachable by a one-token edit to the line below.
+if not isinstance(never_shipped, list) or not all(isinstance(b, str) for b in never_shipped):
+    print(f"DERIVATION-SHAPE-UNUSABLE({type(never_shipped).__name__})")
+    raise SystemExit(2)
+matcher = mod._never_shipped_matcher(never_shipped)
+# Positive control: the matcher must report a name the derivation says is never shipped.
+# Without it a degenerate matcher passes the clean-tree arm below by matching nothing.
+if not any(matcher(f"a reference to {basename}.yml here") for basename in never_shipped):
+    print("MATCHER-VACUOUS")
+    raise SystemExit(2)
 # Through the shared population reader, so this scan inherits its path-quoting and
 # reported-skip contracts instead of a second hand-rolled git ls-files.
 population = mod._pop.enumerate_population(

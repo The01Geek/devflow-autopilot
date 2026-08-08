@@ -426,11 +426,11 @@ _COPY_LOOP = re.compile(r"^\s*for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+?)\s*;\s*
 def _literal_words(operands: str) -> list[str]:
     """Tokenize a shell operand list into the literal words it declares.
 
-    `shlex` removes the quoting; the whitespace re-split is what turns a QUOTED word list,
-    which shlex yields as one token, back into its members, and it leaves an
-    already-unquoted `for w in a b` unchanged. A `$`-carrying word is a variable this
-    parser cannot resolve, so it contributes no name rather than contributing its own
-    literal text.
+    `shlex` removes the quoting; the whitespace re-split recovers the members of a quoted
+    operand list (`for w in "a b"`), which shlex yields as one token, and leaves an
+    already-unquoted list unchanged — the live copy loop is unquoted, so that arm is
+    defensive. A `$`-carrying word is a variable this parser cannot resolve, so it
+    contributes no name rather than contributing its own literal text.
     """
     try:
         tokens = shlex.split(operands, comments=True, posix=True)
