@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1431",
+  "generated_at": "2026-08-08T04:16:13Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.40",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.7738825,
+    "tokens": {
+      "input_tokens": 60,
+      "output_tokens": 23559,
+      "cache_read_input_tokens": 4010427,
+      "cache_creation_input_tokens": 157902,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 66,
+        "outputTokens": 28435,
+        "cacheReadInputTokens": 4112915,
+        "cacheCreationInputTokens": 226254,
+        "webSearchRequests": 0,
+        "costUSD": 4.7738825,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 470312
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR:-<empty>}\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-<empty>}\"; echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-<empty>}\"; pwd",
+      "gh pr diff 1431 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1431/31238716982-1/diff.patch > /dev/null\necho \"pipe-rc=${PIPESTATUS[0]}\"\necho \"=== changed files ===\"\ngrep '^diff --git' .prflow/tmp/review/pr-1431/31238716982-1/diff.patch\necho \"=== diffstat ===\"\nwc -l .prflow/tmp/review/pr-1431/31238716982-1/diff.patch",
+      "echo \"=== sha256 of changed reference files at HEAD ===\"\nfor f in skills/review-and-fix/references/convergence.md skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/fixing.md; do\n  printf '%s  ' \"$f\"; python3 -c \"import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())\" \"$f\"\ndone\necho \"=== contract-recorded hashes ===\"\njq -r '.assets | to_entries[] | select(.key|test(\"references/(convergence|error-handling|fixing)\")) | \"\\(.value)  \\(.ke …[per-command-truncated]",
+      "git fetch origin e66a95b44c0d8d6454e3e91d1b2ed68ac05811a3 2>&1 | tail -2; echo \"fetch-rc=$?\"\necho \"=== recompute contract check against PR head content ===\"\ngit show e66a95b44c0d8d6454e3e91d1b2ed68ac05811a3:scripts/devflow-cloud-writer-contract.json > .prflow/tmp/review/pr-1431/31238716982-1/contract-head.json 2>&1 && echo \"got contract\" || echo \"no contract\"",
+      "gh issue view 1420 --json comments --jq '.comments[] | select(.body | test(\"prflow:workpad|devflow:workpad\")) | .body' > .prflow/tmp/review/pr-1431/31238716982-1/workpad.txt 2>/dev/null; echo \"extract-rc=$?\"; wc -l .prflow/tmp/review/pr-1431/31238716982-1/workpad.txt\necho \"=== Writing-skills evidence lines ===\"\ngrep -n \"Writing-skills evidence\" .prflow/tmp/review/pr-1431/31238716982-1/workpad.txt || echo \"NO-WRITING-SKILLS-MARKER\"\necho \"=== Verification evidence lines ===\"\ngrep -n \"Verification  …[per-command-truncated]"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
