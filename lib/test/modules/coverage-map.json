@@ -1119,6 +1119,10 @@
       "note": "issue #1401 vendored-skill CLAUDE.md-token ban in lint-shipped-pruned-path.py: run.sh-resident fixture cases (fires on SKILL and non-SKILL members of a derived vendored-skill dir; marker discharge; docs/CLAUDE.md substring fires and CLAUDE.local.md does not; empty-derivation fail-closed; skills/implement + agents/ scope negative controls)",
       "owner": "unmodularized"
     },
+    "1402": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "141": {
       "note": "",
       "owner": "unmodularized"

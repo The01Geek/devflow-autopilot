@@ -48,7 +48,9 @@ Two disclosed residuals, neither closed here:
   the stem alone would ban the substring `ci` outright, which no marker budget absorbs.
 * **A workflow absent from the workflows source is invisible.** The forbidden set is an
   intersection with what is actually present, so a pointer to a workflow that was deleted
-  from the tree (`devflow-review.yml`) names nothing the derivation can see.
+  from the tree — the withheld auto-review tier's own workflow is the live example — names
+  nothing the derivation can see. (Spelling that filename here would itself join the
+  checked-in survivors allowlist the suite pins.)
 
 Why this exists: `.github/actions/vendor-plugin/vendor-slice.sh`'s
 `devflow_copy_slice()` deletes subtrees from the vendored plugin before it lands in
