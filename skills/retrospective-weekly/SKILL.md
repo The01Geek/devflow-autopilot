@@ -1287,11 +1287,10 @@ after reviewing.
 - **Clean working tree required.** The loop modifies `.prflow/learnings/`
   in-place on `main`'s working tree; starting dirty risks mixing pre-existing
   changes into the state PR commit.
-- **State PR before Stage B.** Opening the state PR (Step 7) before Stage B is
-  intentional: it commits the learnings files onto `devflow/learnings-<date>`
-  before any issue is filed, so this run's retrospective data is captured even
-  if Stage B or the filing step fails partway. Stage B never touches your `main`
-  checkout — it makes no edits at all.
+- **State PR before Stage B.** Step 7 commits the learnings files onto
+  `devflow/learnings-<date>` before any issue is filed, so this run's retrospective
+  data is captured even if Stage B or the filing step fails partway. Stage B never
+  touches your `main` checkout.
 - **Issue-per-finding.** Stage B dispatches one drafting subagent per actionable
   pattern concurrently (each returns a ranked `findings` array of one to three
   sub-patterns, no edits), then `lib/select-findings.sh` decides which findings
@@ -1299,10 +1298,10 @@ after reviewing.
   `meta-issue.sh` under an opaque `<category>-<subslug>` key. No worktrees, no
   commits, no PRs — the loop proposes; a human implements.
 - **Overrides after Stage B.** `meta-issue.sh` records each filed pattern's
-  lifecycle entry in `.prflow/learnings/overrides.json` in your `main` working tree
-  **after** the Step 7 state PR was opened, so the change lands in next week's
-  state PR automatically. If you want it in *this* run's PR, after Step 8 push a
-  follow-up commit onto the same `devflow/learnings-<date>` branch:
+  lifecycle entry in `.prflow/learnings/overrides.json` **after** the Step 7 state PR
+  was opened, so the change lands in next week's state PR. To include it in *this*
+  run's PR, after Step 8 push a follow-up commit onto the same
+  `devflow/learnings-<date>` branch:
 
   ```bash
   if ! git diff --quiet HEAD -- .prflow/learnings/overrides.json 2>/dev/null; then
