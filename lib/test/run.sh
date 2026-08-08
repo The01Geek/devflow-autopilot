@@ -4599,15 +4599,15 @@ else
   skip "#555 exec-bit guard fail-closed arms" host-capability "could not allocate a fixture manifest under this host's scratch policy"
 fi
 
-# ── issue #555 (review finding): the §4.0.5 routing header is count-locked ON PURPOSE — the
-# block's whole value is that "a rework must not lose them", and this repo treats a stale
-# self-referential count as a non-demotable REJECT (PR #553). But a prose count guards nothing
-# on its own: two review passes read the header's numerals as an off-by-one before the bullets
-# were classified into exits and qualifiers. Pin the population mechanically so a later rework
-# that adds or drops a bullet turns the suite RED at the desk instead of rotting the header.
-# The region is the routing list between the count-locked header and the label-apply prose.
-_P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the printed/' "$P405_REF" | grep -c '^- \*\*')"
-assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 bullets (6 exits + 2 qualifiers) — the count-locked header's numerals are only true at this population" \
+# ── issue #555 (review finding), amended by issue #1415: the §4.0.5 routing-bullet population
+# is pinned mechanically here so a later rework that adds or drops a bullet turns the suite RED
+# at the desk. Issue #1415 removed the self-referential count from the shipped header itself
+# (a stale self-referential count is a non-demotable REJECT, PR #553), so this guard no longer
+# reads any header numeral — it counts the shipped bullets directly, keeping the population
+# guard while the shipped prose carries no count. The region is the routing list between the
+# exits header and the label-apply prose.
+_P4_ROUTING_BULLETS="$(awk '/exits before any label is applied/,/^If the printed/' "$P405_REF" | grep -c '^- \*\*')"
+assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 routing bullets (6 exits + 2 qualifiers) — pinned mechanically, not against any shipped header numeral (#1415)" \
   "8" "$_P4_ROUTING_BULLETS"
 
 # Issue #1188: the docs-rationale/overview MIRROR presence pins that used to sit here
