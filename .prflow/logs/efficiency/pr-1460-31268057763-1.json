@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1460",
+  "generated_at": "2026-08-08T16:58:08Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.46",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.5733385,
+    "tokens": {
+      "input_tokens": 26,
+      "output_tokens": 11866,
+      "cache_read_input_tokens": 1670777,
+      "cache_creation_input_tokens": 144117,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 26,
+        "outputTokens": 11866,
+        "cacheReadInputTokens": 1670777,
+        "cacheCreationInputTokens": 144117,
+        "webSearchRequests": 0,
+        "costUSD": 2.5733385,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 15,
+    "duration_ms": 187049
+  },
+  "permission_denials": {
+    "count": 1,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "sed -n '1,60p' scripts/post-review-verdict.sh | grep -nE 'Usage|usage|VERDICT|head=|argv|\\$1|\\$2|\\$3' | head -30; echo \"---help---\"; .prflow/vendor/prflow/scripts/post-review-verdict.sh --help 2>&1 | head -30 || scripts/post-review-verdict.sh --help 2>&1 | head -30"
+    ],
+    "total": 1,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
