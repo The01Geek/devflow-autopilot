@@ -4,6 +4,14 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.37] — 2026-08-08
+
+### Changed
+- **Compress `skills/implement/phases/phase-3-review.md` under the instruction-plus-consequence prose rule.** Removed the §3.3 epistemics essays, the thrice-stated `(post-merge)` refusal contract's re-voicings, and majority-comment fence prose, preserving every instruction, prohibition, degraded arm, routing token, exit code, command form, and closed-set enumeration. Editorial only — no behavior change. (#1430)
+
+### Fixed
+- **Namespace the `docs-*` cross-command references so a consumer can run what a stop arm names.** Six unnamespaced `/docs-*` command references across three `docs-*` skill bodies (`docs-bootstrap-internal`, `docs-sync-external`, `docs-bootstrap-external`) now use their `prflow:` form, so an agent following a Preflight stop arm reports a command that actually resolves in a consumer's checkout. (#1426)
+
 ## [2.31.36] — 2026-08-08
 
 ### Changed
