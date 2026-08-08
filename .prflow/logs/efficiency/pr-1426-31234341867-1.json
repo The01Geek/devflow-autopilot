@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1426",
+  "generated_at": "2026-08-08T02:15:04Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.35",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.7868915000000003,
+    "tokens": {
+      "input_tokens": 41,
+      "output_tokens": 13802,
+      "cache_read_input_tokens": 2381773,
+      "cache_creation_input_tokens": 125075,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 41,
+        "outputTokens": 13802,
+        "cacheReadInputTokens": 2381773,
+        "cacheCreationInputTokens": 125075,
+        "webSearchRequests": 0,
+        "costUSD": 2.7868915000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 27,
+    "duration_ms": 236099
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || echo \"---trying repo-root---\"; scripts/load-prompt-extension.sh review 2>&1 | head -50",
+      "scripts/load-prompt-extension.sh review 2>&1 | head -50",
+      "scripts/load-prompt-extension.sh review",
+      "git status --porcelain; echo \"---ENV---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"",
+      "HEAD=bd5162aa507213eb82a57fe8ca28939840bf3558; git fetch origin $HEAD 2>/dev/null; echo \"=== sha256 of docs-sync-external at PR head ===\"; git show $HEAD:skills/docs-sync-external/SKILL.md | sha256sum; echo \"manifest claims: 2a7d29c409674b2fc87deaae31702c721961fabca9fd94b1b4942714f7393b21\"; echo; echo \"=== any remaining unnamespaced /docs- command refs at PR head across skills/ agents/ ===\"; git grep -nE '`?/docs-[a-z]' $HEAD -- skills/ agents/ | grep -v 'prflow:docs-' | grep -vE '/docs-(interna …[per-command-truncated]",
+      "git grep -hnoE '`/docs-[a-z-]+`' bd5162aa507213eb82a57fe8ca28939840bf3558 -- skills/ agents/ | sort | uniq -c; echo \"=== '(run /docs-' or 'defer to /docs-' unnamespaced forms ===\"; git grep -nE '/docs-[a-z-]+`?( |\\)| or| rather)' bd5162aa507213eb82a57fe8ca28939840bf3558 -- skills/ agents/ | grep -vE 'prflow:docs-|docs-sync-external/SKILL\\.md|docs-release-notes|/../docs-|/docs-(internal|external)' | head"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
