@@ -32,13 +32,24 @@ The path family resolves in a consumer's checkout; individual members do not —
 blanket `.github/` ban would be wrong, and the class is keyed to membership instead.
 
 The never-shipped set is **derived, never transcribed**, by the same principle as the two
-sets above: `parse_shipped_workflow_names()` reads the two `install.sh` declarations that
-decide which workflow names reach a consumer — the copy loop's literal operand list and
-the `DEVFLOW_WITHHELD_TIER` value — and `derive_never_shipped_basenames()` subtracts
-their union from the tracked `.github/workflows/*.yml` stems under the workflows source. Membership is over **parsed word lists**, never a substring search over
-`install.sh`: `ci` occurs as a substring on dozens of unrelated lines, and a comment or a
-`--help` block naming a workflow would read as a declaration of it. An unestablished or
-ambiguous declaration refuses non-zero naming `install.sh` and audits nothing.
+sets above: `parse_shipped_workflow_names()` reads the copy loop's literal operand list —
+the one `install.sh` declaration that puts a workflow in a consumer's
+`.github/workflows/` — and `derive_never_shipped_basenames()` subtracts it from the
+tracked `.github/workflows/*.yml` stems under the workflows source. Membership is over
+**parsed word lists**, never a substring search over `install.sh`: `ci` occurs as a
+substring on dozens of unrelated lines, and a comment or a `--help` block naming a
+workflow would read as a declaration of it. An unestablished or ambiguous declaration
+refuses non-zero naming `install.sh` and audits nothing.
+
+`DEVFLOW_WITHHELD_TIER` is **not read here at all** (issue #1423). It names workflows only a
+repo that installed before the tier was withheld still carries, so counting them as shipped
+told a *fresh* consumer that a file they do not have resolves — the very thing this class
+exists to report. Its members are therefore forbidden like any other never-shipped name,
+and the declaration has one reader again: `install.sh`'s own removal machinery.
+
+A withheld name that has also left the tree needs no carve-out: the derivation intersects
+with what is actually **tracked**, so a workflow the tree no longer carries can never enter
+the forbidden set however it is declared.
 
 Disclosed residuals, none closed here:
 
@@ -412,22 +423,30 @@ def parse_docs_defaults(schema_bytes: bytes) -> set[str]:
 #: silently missed — the same derive-don't-transcribe posture `_staging_variable` takes.
 _COPY_LOOP = re.compile(r"^\s*for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+?)\s*;\s*do\s*$")
 
-#: The withheld-tier declaration. The right-hand side is captured whole and tokenized by
-#: `shlex`, so its quoting model is the one `parse_prune_targets` already uses.
-_WITHHELD_TIER = re.compile(r"^\s*DEVFLOW_WITHHELD_TIER=(.*)$")
+def _literal_words(operands: str) -> list[str]:
+    """Tokenize a `for … in <operands>; do` list into the literal words it iterates.
+
+    One token is one loop iteration, which is why there is no whitespace re-split: a
+    quoted operand (`for w in "a b"`) iterates the single value `a b`, so the installer
+    would look for one absurdly-named workflow and neither `a` nor `b` would reach a
+    consumer — splitting it would drop both from the never-shipped set, a fail-open. (The
+    re-split existed for `DEVFLOW_WITHHELD_TIER`, a string the installer word-splits at
+    use; issue #1423 stopped reading that declaration.) A `$`-carrying word is a variable
+    this parser cannot resolve, so it contributes no name rather than its own literal text.
+    """
+    try:
+        tokens = shlex.split(operands, comments=True, posix=True)
+    except ValueError:
+        return []
+    return [token for token in tokens if "$" not in token]
 
 
 def parse_shipped_workflow_names(install_text: str) -> set[str]:
-    """Return the workflow stems `install.sh` declares as reaching a consumer.
+    """Return the workflow stems `install.sh` copies into a consumer's checkout.
 
-    The set is the union of two declarations — the only places the installer decides a
-    workflow name's fate:
-
-    * the copy-loop operand list, whose members the installer copies into a consumer's
-      `.github/workflows/`, and
-    * `DEVFLOW_WITHHELD_TIER`, whose members a consumer that installed an earlier release
-      still carries (they are reported and only removed on an explicit opt-in), so a
-      shipped sentence naming one still resolves there.
+    The set is the copy-loop operand list alone — the one declaration that *puts* a
+    workflow in a consumer's `.github/workflows/`. `DEVFLOW_WITHHELD_TIER` is not read; the
+    module docstring's never-shipped section states why (issue #1423).
 
     The copy loop is identified by two properties together, never by the loop variable's
     name: its **body** names `.github/workflows/$<var>.yml`, and its **operand list holds
@@ -437,42 +456,22 @@ def parse_shipped_workflow_names(install_text: str) -> set[str]:
     operand list tells the two apart.
 
     `shlex.split` is the shared tokenizer with `parse_prune_targets`; `_literal_words`
-    adds a whitespace re-split that recovers the members of a quoted
-    `DEVFLOW_WITHHELD_TIER` value, and swallows an unlexable line into an empty list where
-    `parse_prune_targets` raises — both fail closed.
+    swallows an unlexable line into an empty list where `parse_prune_targets` raises —
+    both fail closed.
 
-    Neither declaration is read by first match: a second literal-bearing workflow loop, or
-    a second `DEVFLOW_WITHHELD_TIER` assignment, **refuses** naming both line numbers. The
-    two conjuncts above say nothing about a loop's DIRECTION, so a removal loop over
-    literal workflow names satisfies them too and selecting it would invert the set
-    silently; refusing on ambiguity is what keeps that loud.
+    The declaration is not read by first match: a second literal-bearing workflow loop
+    **refuses** naming both line numbers. The two conjuncts above say nothing about a
+    loop's DIRECTION, so a removal loop over literal workflow names satisfies them too and
+    selecting it would invert the set silently; refusing on ambiguity keeps that loud.
 
     A `$`-carrying operand is dropped as unresolvable, so a mixed list (`for w in a $B`)
     yields a PARTIAL set rather than a refusal — over-broad, in the fail-closed direction.
 
     Raises `NeverShippedParseError` on every shape that cannot yield a real name set: no
-    loop naming a workflow path, no such loop declaring a literal word, more than one that
-    does, no `DEVFLOW_WITHHELD_TIER` assignment, more than one, or one declaring no
-    literal word. Each refusal names the declaration that failed.
+    loop naming a workflow path, no such loop declaring a literal word, or more than one
+    that does. Each refusal names the declaration that failed.
     """
     lines = install_text.split("\n")
-
-    def _literal_words(operands: str) -> list[str]:
-        # `shlex` removes the quoting; the whitespace re-split is what turns a QUOTED word
-        # list — `DEVFLOW_WITHHELD_TIER="a b c"`, which shlex yields as one token — back
-        # into its members, and it leaves an already-unquoted `for w in a b` unchanged.
-        # A `$`-carrying word is a variable this parser cannot resolve, so it contributes
-        # no name rather than contributing its own literal text.
-        try:
-            tokens = shlex.split(operands, comments=True, posix=True)
-        except ValueError:
-            return []
-        return [
-            word
-            for token in tokens
-            for word in token.split()
-            if "$" not in word
-        ]
 
     saw_workflow_loop = False
     literal_candidates: list[tuple[int, list[str]]] = []
@@ -520,31 +519,7 @@ def parse_shipped_workflow_names(install_text: str) -> set[str]:
             + ", ".join(str(number) for number, _ in literal_candidates)
             + " — cannot establish which one installs into a consumer"
         )
-    loop_words = literal_candidates[0][1]
-
-    withheld_matches = [
-        (number, line)
-        for number, line in enumerate(lines, 1)
-        if _WITHHELD_TIER.match(line)
-    ]
-    if not withheld_matches:
-        raise NeverShippedParseError("no DEVFLOW_WITHHELD_TIER assignment found")
-    # Same reason as above: a first-match break would let a later reassignment — or a
-    # documentation heredoc spelling the same token — silently decide the set.
-    if len(withheld_matches) > 1:
-        raise NeverShippedParseError(
-            "more than one DEVFLOW_WITHHELD_TIER assignment, at lines "
-            + ", ".join(str(number) for number, _ in withheld_matches)
-            + " — cannot establish which one declares the withheld tier"
-        )
-    withheld_words = _literal_words(
-        _WITHHELD_TIER.match(withheld_matches[0][1]).group(1)
-    )
-    if not withheld_words:
-        raise NeverShippedParseError(
-            "the DEVFLOW_WITHHELD_TIER assignment declares no literal workflow name"
-        )
-    return set(loop_words) | set(withheld_words)
+    return set(literal_candidates[0][1])
 
 
 def derive_never_shipped_basenames(
