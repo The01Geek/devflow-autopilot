@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1438",
+  "generated_at": "2026-08-08T05:18:37Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.42",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.568257,
+    "tokens": {
+      "input_tokens": 1736,
+      "output_tokens": 13533,
+      "cache_read_input_tokens": 2569114,
+      "cache_creation_input_tokens": 143530,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1788,
+        "outputTokens": 36190,
+        "cacheReadInputTokens": 4339534,
+        "cacheCreationInputTokens": 311450,
+        "webSearchRequests": 0,
+        "costUSD": 5.568257,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 26,
+    "duration_ms": 428904
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1",
+      "echo \"CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR:-<unset>}\"; gh pr view 1438 --json number,title,headRefOid,baseRefName,headRefName,state,url,body 2>&1 | head -60",
+      "git fetch origin main 2>&1 | tail -2; echo \"---MERGEBASE---\"; git merge-base origin/main 341d9f32ae0fc829cfa845d42a72311fe136c3e7; echo \"---FILES---\"; git diff --stat $(git merge-base origin/main 341d9f32ae0fc829cfa845d42a72311fe136c3e7) 341d9f32ae0fc829cfa845d42a72311fe136c3e7",
+      "MB=$(git merge-base origin/main 341d9f32ae0fc829cfa845d42a72311fe136c3e7); echo \"merge-base=$MB\"; git diff --stat \"$MB\" 341d9f32ae0fc829cfa845d42a72311fe136c3e7",
+      "gh pr diff 1438 --patch > .prflow/tmp/pr1438.patch 2>&1; wc -l .prflow/tmp/pr1438.patch; echo \"---STAT---\"; gh pr diff 1438 --name-only",
+      "HEAD=origin/issue-1432-fix-bare-anchor-prompt-extension-load\necho \"=== pr-description render placeholder? ===\"; git show $HEAD:skills/pr-description/SKILL.md | grep -n \"render-prompt-extension\\|PROMPT-EXTENSION-STATUS\\|Consumer prompt extension\\|load-prompt-extension\" \necho \"=== all skills carrying render placeholder on PR branch ===\"; for s in pr-description docs-sync-internal docs-sync-external docs-release-notes; do echo \"-- $s\"; git show $HEAD:skills/$s/SKILL.md | grep -c \"render-prompt-exte …[per-command-truncated]",
+      "git show origin/issue-1432-fix-bare-anchor-prompt-extension-load:skills/pr-description/SKILL.md > /tmp/prd.md\ngrep -n \"render-prompt-extension\\|PROMPT-EXTENSION-STATUS\\|Consumer prompt extension\\|load-prompt-extension\\|Fallback\" /tmp/prd.md",
+      "git show origin/issue-1432-fix-bare-anchor-prompt-extension-load:skills/pr-description/SKILL.md > /tmp/prd.md; git show origin/issue-1432-fix-bare-anchor-prompt-extension-load:skills/docs-release-notes/SKILL.md > /tmp/drn.md; echo done",
+      "git show origin/issue-1432-fix-bare-anchor-prompt-extension-load:skills/pr-description/SKILL.md > /tmp/prd.md",
+      "git show origin/issue-1432-fix-bare-anchor-prompt-extension-load:skills/pr-description/SKILL.md > .prflow/tmp/prd.md"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
