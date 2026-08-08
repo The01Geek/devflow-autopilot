@@ -12,7 +12,29 @@ Generate a structured PR description by analyzing the current branch's changes a
 
 **Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
 
-**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+**Consumer prompt extension (load first).** This skill's consumer extension is rendered inline, below, before you see this skill — you do not decide whether to load it:
+
+!`${CLAUDE_SKILL_DIR}/../../scripts/render-prompt-extension.sh pr-description`
+
+Read the `PROMPT-EXTENSION-STATUS:` line rendered above and route on it:
+
+- `content-present` — the text following it is consumer instructions appended to this skill's own prompt for this run (consumer-owned, committed under `.prflow/prompt-extensions/`). Honor it.
+- `present-empty` — this consumer configured no extension. Proceed unchanged.
+- `unestablished (<reason>)` — the extension's state could not be established. **Report it in the run's output**; never treat it as a clean policy pass (*unknown is not zero*).
+
+**Fallback — applies ONLY when the placeholder did not render**, i.e. no `PROMPT-EXTENSION-STATUS:` line appears above, or it appears as literal placeholder text. On that path only, load the extension yourself. From the repo root, emit the granted vendored-literal leading token first:
+
+```bash
+.prflow/vendor/prflow/scripts/load-prompt-extension.sh pr-description
+```
+
+On a `command not found` / `No such file` / exit-127 reading (this repository's own local tier, where `.prflow/vendor/` is materialized only at runtime), re-invoke the same helper with the `.prflow/vendor/prflow/` prefix removed:
+
+```bash
+scripts/load-prompt-extension.sh pr-description
+```
+
+If that too is not found (a non-Claude-Code runner where neither repo-relative path exists), fall back to the portable anchor form:
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh pr-description
