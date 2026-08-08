@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1418",
+  "generated_at": "2026-08-08T01:56:01Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.35",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.823254999999996,
+    "tokens": {
+      "input_tokens": 37,
+      "output_tokens": 23481,
+      "cache_read_input_tokens": 2498782,
+      "cache_creation_input_tokens": 166588,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 234,
+        "outputTokens": 80886,
+        "cacheReadInputTokens": 9062960,
+        "cacheCreationInputTokens": 583000,
+        "webSearchRequests": 0,
+        "costUSD": 10.823254999999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 631665
+  },
+  "permission_denials": {
+    "count": 21,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"SKILL_DIR=${CLAUDE_SKILL_DIR:-unset}\"; ls skills/review/phases/ 2>&1",
+      "git grep -nE '(matcher-probe|version-consolidate|agents-seam-probe)\\.yml' 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 -- skills/ agents/ 2>&1; echo \"multi-rc=${PIPESTATUS[0]:-$?}\"; echo \"=== ci.yml boundary check ===\"; git grep -nE '(?<![A-Za-z0-9_.-])ci\\.yml' 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 -- skills/ agents/ 2>&1 | head; echo done",
+      "cd /tmp && for f in installs/simple.sh installs/substring-decoy.sh installs/no-copy-loop.sh installs/variable-only-loop.sh installs/no-withheld.sh installs/empty-withheld.sh installs/two-literal-loops.sh installs/two-withheld.sh; do echo \"=== $f ===\"; git -C /home/runner/work/prflow/prflow show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/fixtures/shipped-pruned-path/$f; done",
+      "for f in installs/simple.sh installs/substring-decoy.sh installs/no-copy-loop.sh installs/variable-only-loop.sh installs/no-withheld.sh installs/empty-withheld.sh installs/two-literal-loops.sh installs/two-withheld.sh; do echo \"=== $f ===\"; git show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/fixtures/shipped-pruned-path/$f; done",
+      "for f in substring-decoy no-copy-loop variable-only-loop no-withheld empty-withheld two-literal-loops two-withheld; do echo \"=== $f ===\"; git show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/fixtures/shipped-pruned-path/installs/$f.sh; done",
+      "for f in substring-decoy no-copy-loop variable-only-loop no-withheld empty-withheld two-literal-loops two-withheld; do echo \"=== $f ===\"; git show \"2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/fixtures/shipped-pruned-path/installs/$f.sh\"; done 2>&1 | cat",
+      "cd /home/runner/work/prflow/prflow\necho \"=== workflows in tree at PR head ===\"\ngit ls-tree 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 .github/workflows/ | grep -E '\\.ya?ml'\necho \"=== run lint print sets against PR-head files ===\"\ngit stash -u >/dev/null 2>&1\ngit checkout 2fc17c44e 2>/dev/null\npython3 lib/test/lint-shipped-pruned-path.py --print-never-shipped-set 2>&1\necho \"--- exempt ---\"\npython3 lib/test/lint-shipped-pruned-path.py --print-exempt-set 2>&1\necho \"--- prune ---\"\npython3 lib/test/lin …[per-command-truncated]",
+      "git ls-tree 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 .github/workflows/",
+      "git ls-tree 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 --name-only .github/workflows/",
+      "git show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 --stat -- .github/workflows/ >/dev/null 2>&1; git ls-tree 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 .github/workflows/ | grep yml",
+      "git ls-tree 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 --name-only .github/workflows/ | cat",
+      "git ls-tree 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 .github/workflows/",
+      "git show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/mutation-pin-census.py | sed -n '215,240p' | head; echo ---; git show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/mutation-pin-census.py > /tmp/census.py; sed -n '/_audited_sources/,/return/p' /tmp/census.py | head -40",
+      "git show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/mutation-pin-census.py > /tmp/census.py 2>/dev/null; grep -n \"_audited_sources\" /tmp/census.py",
+      "git ls-tree -r --name-only 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 lib/test | grep '\\.sh$' | wc -l",
+      "git ls-tree -r --name-only 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 -- lib/test",
+      "cd /home/runner/work/prflow/prflow\ngit show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/lint-shipped-pruned-path.py > /tmp/lint.py 2>/dev/null\ngit show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/lint_population.py > /tmp/lint_population.py 2>/dev/null || cp lib/test/lint_population.py /tmp/\necho \"=== does PR modify these source files? ===\"\ngit diff main...2fc17c44e1c1515d6a038bcd04068e21bdcfbf61 --stat -- install.sh .github/actions/vendor-plugin/vendor-slice.sh .prflow/config.schema …[per-command-truncated]",
+      "cp /tmp/lint.py /home/runner/work/prflow/prflow/lib/test/_tmp_lint_probe.py 2>&1\npython3 /home/runner/work/prflow/prflow/lib/test/_tmp_lint_probe.py --print-never-shipped-set 2>&1\necho \"--- exempt ---\"\npython3 /home/runner/work/prflow/prflow/lib/test/_tmp_lint_probe.py --print-exempt-set 2>&1\necho \"--- run audit against PR-head shipped files ---\"\ngit show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:skills/review/phases/phase-3-review.md > /tmp/p3.md 2>&1; echo \"phase3 saved\"",
+      "git show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/lint-shipped-pruned-path.py > /home/runner/work/prflow/prflow/lib/test/_tmp_lint_probe.py 2>&1 && echo copied",
+      "git show 2fc17c44e1c1515d6a038bcd04068e21bdcfbf61:lib/test/lint-shipped-pruned-path.py > lib/test/_tmp_lint_probe.py && echo copied",
+      "wc -l /tmp/lint.py; sed -n '1p' /tmp/lint.py"
+    ],
+    "total": 21,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
