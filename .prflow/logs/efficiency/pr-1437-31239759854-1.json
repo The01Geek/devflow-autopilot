@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1437",
+  "generated_at": "2026-08-08T04:40:25Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.41",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.9273899999999986,
+    "tokens": {
+      "input_tokens": 26,
+      "output_tokens": 8232,
+      "cache_read_input_tokens": 1313104,
+      "cache_creation_input_tokens": 100400,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 70,
+        "outputTokens": 15108,
+        "cacheReadInputTokens": 2393180,
+        "cacheCreationInputTokens": 156200,
+        "webSearchRequests": 0,
+        "costUSD": 2.9273899999999986,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 15,
+    "duration_ms": 268791
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-unset}\"; ls /home/runner/work/prflow/prflow/skills/review/phases/ 2>&1",
+      "git fetch origin issue-1415-chore-skills-bring-the-two-implement-deferred >/dev/null 2>&1; git show f887bbcb:skills/implement/references/deferred-review-findings.md > /tmp/drf.md; git show f887bbcb:skills/implement/references/deferred-ac-followups.md > /tmp/daf.md; echo \"=== bullet count in range ===\"; awk '/exits before any label is applied/,/^If the printed/' /tmp/drf.md | grep -c '^- \\*\\*'; echo \"=== range start matches ===\"; grep -n 'exits before any label is applied' /tmp/drf.md; echo \"===  …[per-command-truncated]",
+      "git show f887bbcb:skills/implement/references/deferred-review-findings.md > /tmp/drf.md\ngit show f887bbcb:skills/implement/references/deferred-ac-followups.md > /tmp/daf.md\necho \"=== bullet count in range ===\"\nawk '/exits before any label is applied/,/^If the printed/' /tmp/drf.md | grep -c '^- \\*\\*'\necho \"=== range start ===\"\ngrep -n 'exits before any label is applied' /tmp/drf.md\necho \"=== end anchor ===\"\ngrep -n '^If the printed' /tmp/drf.md",
+      "git show f887bbcb:skills/implement/references/deferred-review-findings.md > /tmp/drf.md; git show f887bbcb:skills/implement/references/deferred-ac-followups.md > /tmp/daf.md; echo done",
+      "git show f887bbcb:skills/implement/references/deferred-review-findings.md > /tmp/drf.md",
+      "git show f887bbcb:skills/implement/references/deferred-review-findings.md > .prflow/tmp/drf.md 2>/dev/null || { mkdir -p .prflow/tmp; git show f887bbcb:skills/implement/references/deferred-review-findings.md > .prflow/tmp/drf.md; }; wc -l .prflow/tmp/drf.md",
+      "git show f887bbcb:skills/implement/references/deferred-review-findings.md > .prflow/tmp/drf.md"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
