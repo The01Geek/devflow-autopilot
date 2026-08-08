@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.48] — 2026-08-08
+
+### Changed
+- **Retired the `#366` division-of-labor existence pin and removed its explanatory sentence from the `/prflow:implement` skill.** The "Division of labor" sentence in the *Skill rule* paragraph of `skills/implement/SKILL.md` guarded agent-executed prose no tool reads, so it was re-adjudicated boundary → prose per `CONTRIBUTING.md` and retired alongside its copy; the two re-anchor triggers remain distinct. Follow-up to #1416 (AC3). (#1447)
+
 ## [2.31.47] — 2026-08-08
 
 ### Changed
