@@ -652,31 +652,37 @@ for d in .github/workflows .prflow/vendor/prflow/.github/workflows; do
   FAMILY_FOUND=0
   FAMILY_HITS=0
   FAMILY_UNREADABLE=0
-  for f in "$d"/*.yml; do
+  FAMILY_NOGREP=0
+  for f in "$d"/*.yml "$d"/*.yaml; do
     [ -e "$f" ] || continue
     FAMILY_FOUND=1
-    grep -n 'TOOLS=' /dev/null "$f" && FAMILY_HITS=1
-    if [ "$?" = 2 ]; then
-      FAMILY_UNREADABLE=1
-      echo "$f: unreadable — check NOT applicable for this file"
-    fi
+    grep -n 'TOOLS=' /dev/null "$f"; RC=$?
+    case "$RC" in
+      0) FAMILY_HITS=1 ;;
+      1) : ;;
+      2) FAMILY_UNREADABLE=1; echo "$f: unreadable — check NOT applicable for this file" ;;
+      *) FAMILY_NOGREP=1; echo "$f: grep did not run (status $RC) — this file is UNCHECKED, not gap-free" ;;
+    esac
   done
   if [ "$FAMILY_FOUND" = 0 ] && [ -d "$d" ]; then
-    echo "$d: directory present but no file of it could be listed — this family is UNCHECKED, not gap-free"
+    echo "$d: directory present but no .yml/.yaml file of it could be listed — this family is UNCHECKED, not gap-free"
   elif [ "$FAMILY_FOUND" = 0 ]; then
     echo "$d: family absent here — check NOT applicable for this family (NOT a no-impact result)"
   else
     [ "$FAMILY_UNREADABLE" = 1 ] && echo "$d: file(s) above were unreadable — this family is PARTIALLY UNCHECKED, not gap-free" || :
-    if [ "$FAMILY_HITS" = 0 ]; then
-      echo "$d: scanned, no TOOLS= line in any readable file of this family"
-    else
+    [ "$FAMILY_NOGREP" = 1 ] && echo "$d: grep did not run for file(s) above — this family is PARTIALLY UNCHECKED, not gap-free" || :
+    if [ "$FAMILY_HITS" = 1 ]; then
       echo "$d: TOOLS= lines printed above — read them now"
+    elif [ "$FAMILY_UNREADABLE" = 1 ] || [ "$FAMILY_NOGREP" = 1 ]; then
+      echo "$d: no TOOLS= line in the files that were checked — this family is NOT gap-free"
+    else
+      echo "$d: scanned, no TOOLS= line in any file of this family"
     fi
   fi
 done
 ```
 
-Compare every shell helper the skill newly invokes against the printed `TOOLS=` lines, family by family: a helper absent from a present family's lines is that family's allowlist gap, and a helper missing from an allowlist is silently refused at run time. The fence reaches no verdict — a family printing lines is not a no-impact result, and neither is an absent family, a family whose directory could not be listed, nor a family reported PARTIALLY UNCHECKED, whose unreadable files were not checked at all. If the trace finds a required change the issue excluded, the issue's exclusion claim was wrong — record it as issue-accuracy feedback: `--reflection-kind issue-accuracy --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins. If the trace confirms the exclusion is correct (no impact on that surface), record: `--note "issue-claim audit (negative-scope): issue excluded '{surface}'; trace confirms no impact"`. If the issue body contains no scope-exclusion claims, record: `--note "issue-claim audit (negative-scope): no scope-exclusion claims found — pass complete"`.
+Compare every shell helper the skill newly invokes against the printed `TOOLS=` lines, family by family: a helper absent from a present family's lines is that family's allowlist gap, and a helper missing from an allowlist is silently refused at run time. The fence reaches no verdict — a family printing lines is not a no-impact result, and neither is an absent family, a family whose directory could not be listed, nor a family reported PARTIALLY UNCHECKED or NOT gap-free, whose unreadable files — or files `grep` never ran on — were not checked at all. If the trace finds a required change the issue excluded, the issue's exclusion claim was wrong — record it as issue-accuracy feedback: `--reflection-kind issue-accuracy --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins. If the trace confirms the exclusion is correct (no impact on that surface), record: `--note "issue-claim audit (negative-scope): issue excluded '{surface}'; trace confirms no impact"`. If the issue body contains no scope-exclusion claims, record: `--note "issue-claim audit (negative-scope): no scope-exclusion claims found — pass complete"`.
 
 #### Pass 3 — Policy-referencing claims in ACs
 
