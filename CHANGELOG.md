@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.38] — 2026-08-08
+
+### Changed
+- **Compressed the rationale prose in `skills/retrospective-weekly/SKILL.md` for conformance with the instruction-plus-consequence prose rule.** Trimmed design-decision records, reviewer-misreading pre-emptions, and motivating-incident narration from the fenced `#` comments and body prose down to the instruction plus one consequence sentence, preserving every breadcrumb literal, degraded-arm reason string, exact command form, closed-set member, `# argjson-ok:` marker, and subagent-dispatch handoff. No behavioral change. (#1427)
+
 ## [2.31.37] — 2026-08-08
 
 ### Changed
