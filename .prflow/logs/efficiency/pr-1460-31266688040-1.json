@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1460",
+  "generated_at": "2026-08-08T16:30:35Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.46",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.039783749999998,
+    "tokens": {
+      "input_tokens": 31,
+      "output_tokens": 16233,
+      "cache_read_input_tokens": 1985725,
+      "cache_creation_input_tokens": 155583,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 141,
+        "outputTokens": 74194,
+        "cacheReadInputTokens": 5952860,
+        "cacheCreationInputTokens": 579898,
+        "webSearchRequests": 0,
+        "costUSD": 9.039783749999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 24,
+    "duration_ms": 550251
+  },
+  "permission_denials": {
+    "count": 13,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "mkdir -p .prflow/tmp/review/pr-1460/run1\ngh pr diff 1460 > .prflow/tmp/review/pr-1460/run1/diff.patch 2>&1\nwc -l .prflow/tmp/review/pr-1460/run1/diff.patch",
+      "HEAD_SHA=$(gh pr view 1460 --json headRefOid -q .headRefOid) && echo \"head: $HEAD_SHA\" && for f in skills/review/phases/phase-3-agents.md skills/review/phases/phase-4-verdict.md; do printf '%s  ' \"$f\"; git show \"$HEAD_SHA:$f\" | python3 -c 'import sys,hashlib;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'; done",
+      "git fetch origin 20f7254b372a1a357f67c8a72051d65efe6d2947 >/dev/null 2>&1; for f in skills/review/phases/phase-3-agents.md skills/review/phases/phase-4-verdict.md; do printf '%s  ' \"$f\"; git show \"20f7254b372a1a357f67c8a72051d65efe6d2947:$f\" | python3 -c 'import sys,hashlib;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'; done",
+      "cd /home/runner/work/prflow/prflow\ngit fetch -q origin pull/1460/head 2>&1 | tail -2\nHEAD=20f7254b372a1a357f67c8a72051d65efe6d2947\necho \"=== PR-head sha256 of the two phase files ===\"\ngit show $HEAD:skills/review/phases/phase-3-agents.md | sha256sum\ngit show $HEAD:skills/review/phases/phase-4-verdict.md | sha256sum\necho \"=== contract entries on PR head ===\"\ngit show $HEAD:scripts/devflow-cloud-writer-contract.json | grep -E 'phase-3-agents|phase-4-verdict'",
+      "cd /home/runner/work/prflow/prflow\ngit fetch -q origin pull/1460/head 2>&1 | tail -1\nH=20f7254b372a1a357f67c8a72051d65efe6d2947\necho \"=== PR-head sha256 phase-3 ===\"; git show \"$H:skills/review/phases/phase-3-agents.md\" | sha256sum\necho \"=== PR-head sha256 phase-4 ===\"; git show \"$H:skills/review/phases/phase-4-verdict.md\" | sha256sum\necho \"=== contract on PR head ===\"; git show \"$H:scripts/devflow-cloud-writer-contract.json\" | grep -E 'phase-3-agents|phase-4-verdict'",
+      "cd /home/runner/work/prflow/prflow\ngit fetch -q origin pull/1460/head\nH=20f7254b372a1a357f67c8a72051d65efe6d2947\nfor f in skills/review/phases/phase-3-agents.md skills/review/phases/phase-4-verdict.md; do\n  printf '%s  ' \"$f\"; git show \"${H}:${f}\" | sha256sum\ndone\necho \"--- contract ---\"\ngit show \"${H}:scripts/devflow-cloud-writer-contract.json\" | grep -E 'phase-3-agents|phase-4-verdict'",
+      "bash /tmp/verify1460.sh",
+      "bash /tmp/verify1460.sh",
+      "chmod +x /tmp/verify1460.sh && /tmp/verify1460.sh",
+      "/tmp/verify1460.sh",
+      "git grep -nE 'only.{0,15}REJECT line|REJECT line.{0,60}(untouched|unchanged)|moves? \\*{0,2}ONLY|Moves ONLY' 20f7254b -- 'docs/**' 'skills/**' '.prflow/config.schema.json' 2>/dev/null",
+      "git grep -nE 'only.{0,15}REJECT line|Moves ONLY|moves .{0,6}only.{0,6}the REJECT' 20f7254b",
+      "sed -n '1,60p' .prflow/vendor/prflow/scripts/post-review-verdict.sh 2>&1 | grep -iE \"usage|arg|verdict|APPROVE|REJECT|head|marker|\\\\$1|\\\\$2|\\\\$3\" | head -40"
+    ],
+    "total": 13,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
