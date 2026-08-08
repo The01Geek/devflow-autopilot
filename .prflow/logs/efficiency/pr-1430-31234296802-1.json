@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1430",
+  "generated_at": "2026-08-08T02:13:23Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.35",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.117961,
+    "tokens": {
+      "input_tokens": 21,
+      "output_tokens": 13729,
+      "cache_read_input_tokens": 1100402,
+      "cache_creation_input_tokens": 122443,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 21,
+        "outputTokens": 13729,
+        "cacheReadInputTokens": 1100402,
+        "cacheCreationInputTokens": 122443,
+        "webSearchRequests": 0,
+        "costUSD": 2.117961,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 12,
+    "duration_ms": 205382
+  },
+  "permission_denials": {
+    "count": 1,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow; cat > .prflow-review-verdict.md <<'EOF'\n## 🔍 PRFlow Review — PR #1430 — **APPROVE**\n\n**Reviewed HEAD:** `0bb24690f78c5ce3318023b10a9fb6feb759fcb6`\n**Diff profile:** `engine_self_modifying` (touches `skills/**`) → full scrutiny; 3 files, +32/−37, editorial.\n\n### Verdict: APPROVE\n\nA clean, well-scoped prose compression of `skills/implement/phases/phase-3-review.md` that brings it under the `instruction-plus-consequence` rule. I traced every hunk against the clai …[per-command-truncated]"
+    ],
+    "total": 1,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
