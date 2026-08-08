@@ -10756,7 +10756,10 @@ assert_eq("#855: every scanned implement-profile prompt surface teaches no denie
 # Pointer-population sweep (issue #855). Which SKILLS emit a bare repo-relative path
 # in a command inside a ```bash fence — the population that therefore states the
 # working-directory contract (implement, retrospective-weekly, review,
-# review-and-fix). Those skills once closed that statement with a pointer to the
+# review-and-fix, and — issue #1432 — pr-description, docs-sync-internal,
+# docs-sync-external, docs-release-notes, whose remediated extension load emits the
+# bare `.prflow/vendor/prflow/scripts/…` leading token in a fenced command). Those
+# skills once closed that statement with a pointer to the
 # contract page under docs/; issue #1190 removed every such pointer, because a
 # shipped skill body installs verbatim into a consumer repository where the path does
 # not resolve — so do NOT restore one. This asserts POPULATION MEMBERSHIP
@@ -10823,7 +10826,9 @@ for _wd_f, _wd_text in _wd_skills_text.items():
                 _wd_pointer_pop.add(_wd_f.split("/")[1])
 assert_eq("#855: the pointer-population sweep matches the recorded snapshot exactly "
           "(a new skill emitting a bare repo-relative command path turns this RED)",
-          {"implement", "retrospective-weekly", "review", "review-and-fix"},
+          {"implement", "retrospective-weekly", "review", "review-and-fix",
+           "pr-description", "docs-sync-internal", "docs-sync-external",
+           "docs-release-notes"},
           _wd_pointer_pop)
 
 # Regression pin: `Bash(cd:*)` is revoked from prflow_implement.allowed_tools
