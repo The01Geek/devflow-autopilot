@@ -644,22 +644,20 @@ Record by outcome: when the **counts match**, record via `--note "issue-claim au
 
 Scan the issue body's Technical Context for claims that explicitly exclude a surface from scope — "no X is required", "no workflow change", "no runtime change", "no agent modification". For each exclusion, trace whether the change the issue proposes to make could affect that surface.
 
-**Cloud-tier workflow impact check (mandatory when editing any `skills/*/SKILL.md`).** When any `skills/*/SKILL.md` is being added or modified, check whether any new shell helper it invokes is present in the cloud profile allowlist in `.github/workflows/devflow-runner.yml` and any vendored consumer copy:
+**Cloud-tier workflow impact check (mandatory when editing any `skills/*/SKILL.md`).** When any `skills/*/SKILL.md` is being added or modified, enumerate the cloud workflow files this checkout actually has — the repo's own workflow directory and any vendored copy — and check whether any new shell helper the skill invokes is present in their `TOOLS=` allowlists; a helper missing from that allowlist is silently refused at run time.
 
 ```bash
-grep -n 'TOOLS=' .github/workflows/devflow-runner.yml
-# The vendored consumer copy is commonly absent. Test for it first so an absent
-# file is NOT conflated with "helper missing from TOOLS=" — a fail-open that would
-# silently record "no impact" when the guard never ran. Treat the two as distinct:
-VENDORED=.prflow/vendor/prflow/.github/workflows/devflow-runner.yml
-if [ -f "$VENDORED" ]; then
-  grep -n 'TOOLS=' "$VENDORED"   # present: empty result here means a real allowlist gap
-else
-  echo "vendored copy absent — check not applicable (NOT a no-impact result)"
-fi
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+FOUND=0
+for f in .github/workflows/*.yml .prflow/vendor/prflow/.github/workflows/*.yml; do
+  [ -e "$f" ] || continue
+  FOUND=1
+  grep -n 'TOOLS=' "$f" || echo "$f: no TOOLS= line"
+done
+[ "$FOUND" = 1 ] || echo "no cloud workflow file present here — check NOT applicable (NOT a no-impact result)"
 ```
 
-A present-but-no-match grep on either file is a real allowlist gap (the helper is missing from `TOOLS=`); an absent vendored file is "check not applicable" — never read it as confirmation of no impact. If the trace finds a required change the issue excluded, the issue's exclusion claim was wrong — record it as issue-accuracy feedback: `--reflection-kind issue-accuracy --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins. If the trace confirms the exclusion is correct (no impact on that surface), record: `--note "issue-claim audit (negative-scope): issue excluded '{surface}'; trace confirms no impact"`. If the issue body contains no scope-exclusion claims, record: `--note "issue-claim audit (negative-scope): no scope-exclusion claims found — pass complete"`.
+A workflow that is present but whose `TOOLS=` lines do not carry the helper is a real allowlist gap; the explicit not-applicable line means no such workflow exists in this checkout — never read it as confirmation of no impact. If the trace finds a required change the issue excluded, the issue's exclusion claim was wrong — record it as issue-accuracy feedback: `--reflection-kind issue-accuracy --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins. If the trace confirms the exclusion is correct (no impact on that surface), record: `--note "issue-claim audit (negative-scope): issue excluded '{surface}'; trace confirms no impact"`. If the issue body contains no scope-exclusion claims, record: `--note "issue-claim audit (negative-scope): no scope-exclusion claims found — pass complete"`.
 
 #### Pass 3 — Policy-referencing claims in ACs
 
