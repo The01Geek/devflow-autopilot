@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.42] — 2026-08-08
+
+### Changed
+Editorially compress the fix loop's `fixing.md`, `error-handling.md` and `convergence.md` reference files under the instruction-plus-consequence prose rule (#1431): remove reviewer-objection pre-emption, cost defences and maintainer notes, add navigational sub-headings to `fixing.md`, and repoint `error-handling.md`'s synthesis-floor mistake at `fixing.md` item 7. Every instruction the fix loop executes is preserved; the shipped prompt surface is shorter.
+
 ## [2.31.41] — 2026-08-08
 
 ### Changed
