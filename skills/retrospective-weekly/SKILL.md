@@ -974,8 +974,8 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".prflow/tmp
                 done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".prflow/tmp/dropped-${SLUG}.json")
             fi
             FINDINGS_N="$(printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh 'length')"
-            # A pattern whose findings all drop as stderr-only breadcrumbs (empty
-            # subslug/title/body, composer rejection, illegal grammar, in-call
+            # A pattern whose findings all drop as stderr-only breadcrumbs (absent/empty
+            # subslug, empty title/body, composer rejection, illegal grammar, in-call
             # duplicate) — with no cap withhold and no truncation — would otherwise
             # leave no report trace, indistinguishable from a clean week. Record it
             # here. Test array EMPTINESS BY CONTENT via run-jq.sh's length, not file
