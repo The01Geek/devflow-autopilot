@@ -120,7 +120,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
   ≥ 2** — so it reviews only on iteration 1 of a `/prflow:review-and-fix` (and thus
   `/prflow:implement`) fix loop. It is a **roster-scoping** key, not a dispatch-time model/effort
   parameter: the resolver only reads it and passes a valid value through, and the exclusion itself is
-  enforced engine-side in `skills/review/SKILL.md` Phase 3.1. In **standalone `/prflow:review`** (a
+  enforced engine-side in `skills/review/phases/phase-3-agents.md` Phase 3.1. In **standalone `/prflow:review`** (a
   single pass) and on **iteration 1** the key is a no-op — behavior is byte-identical to omitting it.
   It is also **never** applied to the Step 2.6 shadow fan-out, whose blinded audit always keeps the
   full roster. An out-of-enum value (or empty string) is dropped with a `::warning::`, mirroring the
