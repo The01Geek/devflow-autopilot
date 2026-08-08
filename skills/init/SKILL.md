@@ -45,7 +45,7 @@ That is the **preview**: it classifies the repository, plans the four members, v
 - **`REFUSED …`** — **nothing was migrated and the repository is byte-identical.** There is no partial-application path, so do not describe any member as "done". Relay every `blocked` line verbatim — each names one member and the precondition it failed — and relay the refusal's own remedy (it names the two operator resolutions for a both-directories-present tree, and the resume instruction for a leftover commit journal). Then **carry on with the rest of this run**: the repository is unchanged and still works through the transitional read-through, so a refusal is a report, not an init failure.
 - **`could not migrate …` lines** (which appear on the success path too) — relay each one, naming the specific file. These are items the migration deliberately does not own, chiefly a retained workflow `install.sh` does not ship and cannot refresh.
 
-Two things this step must not do. **Never invent a partial migration** — do not move the directory, edit a workflow, or rewrite the marketplace source with your file-edit tools when the helper refused; its refusal is the whole point. And **never treat a refusal as a stop**: nothing in this step may end `/prflow:init`, which is this skill's standing ethos.
+Two things this step must not do. **Never invent a partial migration** — do not move the directory, edit a workflow, or rewrite the marketplace source with your file-edit tools when the helper refused. And **never treat a refusal as a stop**: nothing in this step may end `/prflow:init`.
 
 **Report each fact once.** The apply re-prints the same plan the preview showed, and the scaffolder further down reports the same retained unshipped workflow this step already named. Relay each distinct fact **once per run**, in whichever step surfaced it first, and say nothing when a later step merely repeats it — a report that says the same thing three times reads as three problems.
 
@@ -81,7 +81,7 @@ SWEEP_ROOT="$(git rev-parse --show-toplevel)"
 AUTHORITY_OID="$(git hash-object "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/rename-map.json)"
 ```
 
-**Validate that captured object ID before you use it.** `AUTHORITY_OID` must be a **non-empty, 40-character, lowercase hexadecimal** object ID before any enumeration, any ledger write, and any candidate content read. Anything else — empty (the skill-base anchor mis-resolved, or the map is absent), short, or non-hex — is **a missing rename authority**: stop as incomplete under *Incomplete handling* below. Validate it **here**, because the per-batch re-pin check only compares for equality and an empty capture compares equal to a later empty re-hash — an unvalidated empty value would match in every batch and run the preserve-by-default predicate with no protected-literal authority behind it.
+**Validate that captured object ID before you use it.** `AUTHORITY_OID` must be a **non-empty, 40-character, lowercase hexadecimal** object ID before any enumeration, any ledger write, and any candidate content read. Anything else — empty (the skill-base anchor mis-resolved, or the map is absent), short, or non-hex — is **a missing rename authority**: stop as incomplete under *Incomplete handling* below.
 
 The map is the **protected-literal authority**: every superseded/frozen literal it names (compatibility identifiers, environment names, workflow filenames, marketplace identities, accepted command aliases) is a context the sweep must **not** touch. Prose classification is a *separate* judgement you apply on top of it — you never widen the map.
 
@@ -106,7 +106,7 @@ Before reading a single candidate's contents, write the durable ledger under `.p
 - **`manifest.json`** — records a schema version, the repository root (`SWEEP_ROOT`), the rename-authority object ID (`AUTHORITY_OID`), the ordered page list, the current page cursor, and the aggregate totals (candidates enumerated, changed, unchanged, ambiguous, skipped, unreadable, unsupported).
 - **Page JSON** (`page-0001.json`, …) — each page records at most **100** candidate records and stays under **64 KiB** of encoded JSON. Each record stores the **base64-encoded raw pathname bytes** plus a per-path status (`pending` / `changed` / `unchanged` / `ambiguous` / `skipped` / `unreadable` / `unsupported`). Base64 round-trips every legal Git pathname byte without loss — that is why paths are stored encoded, never as decoded text.
 
-Use preflight-required `python3` for the base64 pathname encoding (no repository helper is added; this is inline model-driven work). File **contents** are never copied into the ledger — only the path records and their status.
+Use preflight-required `python3` for the base64 pathname encoding. File **contents** are never copied into the ledger — only the path records and their status.
 
 ### One candidate per batch (compaction-safe)
 
@@ -138,7 +138,7 @@ A **staging, verification, or replacement failure leaves the original target's b
 
 Any of these produces an **incomplete** result: an enumeration failure, a staging failure, a staged-byte verification mismatch, an atomic-replacement failure, a missing rename authority, an authority-object-ID mismatch, a malformed or oversized (page-limit-violating) progress ledger, and a repository-root mismatch (the manifest's `SWEEP_ROOT` differs from the current root). On any of them: **stop further sweep mutations, leave the current target's original bytes unchanged, record the incomplete reason in the ledger, report it, and let the rest of init continue.** An incomplete result is never reported as clean.
 
-**Two conditions are deliberately NOT on that list: an unreadable candidate and an unsupported (binary/non-text) file type.** They are **per-path skips** — recorded `unreadable`/`unsupported` in step 2 above, with the sweep continuing — and this is a decision, not an omission. The candidate population includes git-ignored paths, so it holds ignored binaries in essentially every real repository; a sweep that stopped at the first one would report incomplete almost everywhere and never reach the prose it exists to repair. What keeps that honest is the reporting rule below: those skipped paths are always surfaced, never silently dropped.
+**Two conditions are deliberately NOT on that list: an unreadable candidate and an unsupported (binary/non-text) file type.** They are **per-path skips** — recorded `unreadable`/`unsupported` in step 2 above, with the sweep continuing — not incomplete stops. Those skipped paths are always surfaced by the reporting rule below, never silently dropped.
 
 ### Result reporting
 
@@ -154,7 +154,7 @@ Whatever the result, the rest of `/prflow:init` continues after it.
 
 ### Renewed-consent resume (the `ALREADY MIGRATED` arm)
 
-A later `/prflow:init` that receives **`ALREADY MIGRATED`** and finds a **matching incomplete ledger** under `.prflow/tmp/init-rename-sweep/` — one whose manifest `SWEEP_ROOT` equals the current repository root **and** whose stored authority object ID equals the current installed-plugin `lib/rename-map.json` hash — offers to **resume** it. An `ALREADY MIGRATED` run with no such ledger (or a ledger whose root/authority does not match) issues **no** offer. Resuming requires **renewed consent** (re-disclose the model-access gate above; a stored ledger is not standing consent), then continues from the recorded cursor — skipping candidates already recorded `changed`/`unchanged`/`ambiguous`/`skipped` and processing only the remaining `pending` ones, under the same per-batch re-pin check and atomic-mutation rules. Repeating the sweep after a **complete + clean** result produces **no additional semantic changes** (every occurrence already classified, nothing left `pending`) — it is idempotent.
+A later `/prflow:init` that receives **`ALREADY MIGRATED`** and finds a **matching incomplete ledger** under `.prflow/tmp/init-rename-sweep/` — one whose manifest `SWEEP_ROOT` equals the current repository root **and** whose stored authority object ID equals the current installed-plugin `lib/rename-map.json` hash — offers to **resume** it. An `ALREADY MIGRATED` run with no such ledger (or a ledger whose root/authority does not match) issues **no** offer. Resuming requires **renewed consent** (re-disclose the model-access gate above; a stored ledger is not standing consent), then continues from the recorded cursor — skipping candidates already recorded `changed`/`unchanged`/`ambiguous`/`skipped` and processing only the remaining `pending` ones, under the same per-batch re-pin check and atomic-mutation rules. Repeating the sweep after a **complete + clean** result produces **no additional semantic changes** — it is idempotent.
 
 ## Run
 
@@ -183,7 +183,7 @@ This verifies `git`, `gh`, `jq`, `python3` (>=3.11), and **PyYAML**, printing an
 
 ## Then: provision the local Claude Code settings
 
-Keeping the DevFlow plugin auto-updated otherwise needs a hand-edited Claude Code settings file. This step provisions that into the repo's **project** `.claude/settings.json` so adopters get it as a one-command outcome of `/prflow:init` instead of a manual edit they have to find in the docs:
+Keeping the DevFlow plugin auto-updated otherwise needs a hand-edited Claude Code settings file. This step provisions that into the repo's **project** `.claude/settings.json`:
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/provision-local-settings.sh
@@ -205,7 +205,7 @@ It is **local/interactive-tier only** — the cloud (CI) tier uses claude-code-a
 
 ## Then: optionally make `auto` mode selectable (user scope — with consent)
 
-**Provider pre-check (do this first — it gates the whole step).** `CLAUDE_CODE_ENABLE_AUTO_MODE` has **no effect on the Anthropic API** — `auto` mode is already available there by default — and only does anything on the third-party providers (Amazon Bedrock, Google Vertex AI, Microsoft Foundry). So before prompting for anything, read the provider env vars: the provider is **third-party iff** one of `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set to a **truthy** value (Claude Code's docs enable these with `1`; the backstop additionally accepts `true` case-insensitively as a defensive superset, and treats empty, `0`, and anything else as off). **On Anthropic-direct (none truthy), skip this entire step silently** — do **not** show the consent prompt, do **not** invoke `provision-auto-mode.sh`, and post **no** user-facing note about it (provisioning the var would be a pointless user-global write that makes nothing selectable that wasn't already). Only when the provider is third-party do you continue with the consent-gated flow below. This is the skill half of a two-layer gate: `provision-auto-mode.sh --apply` enforces the **same** provider check as a deterministic backstop (it skips with a `devflow-automode:` breadcrumb and exit 0 on Anthropic-direct), so correctness never depends on this pre-check — the pre-check only spares the Anthropic-direct user a prompt they'd never act on.
+**Provider pre-check (do this first — it gates the whole step).** `CLAUDE_CODE_ENABLE_AUTO_MODE` has **no effect on the Anthropic API** — `auto` mode is already available there by default — and only does anything on the third-party providers (Amazon Bedrock, Google Vertex AI, Microsoft Foundry). So before prompting for anything, read the provider env vars: the provider is **third-party iff** one of `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, or `CLAUDE_CODE_USE_FOUNDRY` is set to a **truthy** value (Claude Code's docs enable these with `1`; the backstop additionally accepts `true` case-insensitively as a defensive superset, and treats empty, `0`, and anything else as off). **On Anthropic-direct (none truthy), skip this entire step silently** — do **not** show the consent prompt, do **not** invoke `provision-auto-mode.sh`, and post **no** user-facing note about it (provisioning the var would be a pointless user-global write that makes nothing selectable that wasn't already). Only when the provider is third-party do you continue with the consent-gated flow below. `provision-auto-mode.sh --apply` enforces the **same** provider check as a deterministic backstop (it skips with a `devflow-automode:` breadcrumb and exit 0 on Anthropic-direct), so correctness never depends on this pre-check.
 
 `auto` permission mode only appears in the Shift+Tab cycle when `env.CLAUDE_CODE_ENABLE_AUTO_MODE="1"` is set in **user-scope** `~/.claude/settings.json` (or managed settings) — see the no-op note above for why the project file can't do it. Because `~/.claude/settings.json` is **user-global** — it affects *every* one of the user's projects, not just this repo — `/prflow:init` must never edit it silently. So this step (on a third-party provider) is **consent-gated**:
 
@@ -286,9 +286,9 @@ The scaffolder also emits lines about the superseded config-key names. Each has 
 
 The scaffolder is add-only — it backfills keys and never renames a **value**, so an identifier that was correct when the config was written stays there after the thing it names is renamed.
 
-**Read the config the scaffolder just reported working on**, not a fixed path. Its `keeping existing <path>` / `scaffolded <path>` line names the file, and on a repository whose Tier-1 migration refused above that path is still `.devflow/config.json`. Taking this step's degrade arm because a hardcoded `.prflow/config.json` was absent would leave the stale entry in place — which is the silent one-run-later stall this step exists to prevent, reintroduced by the very guard meant to be safe. Read that file with your file-read tool and correct the one such value there is:
+**Read the config the scaffolder just reported working on**, not a fixed path. Its `keeping existing <path>` / `scaffolded <path>` line names the file, and on a repository whose Tier-1 migration refused above that path is still `.devflow/config.json`. Read that file with your file-read tool and correct the one such value there is:
 
-- **`allowed_bots`, inside whichever top-level block this config actually has** — `prflow` on a migrated repository, `devflow` on one whose migration was refused above. **Do not hardcode either name.** The migration step at the top of this run renames that block, so a rule naming only `devflow` would take the degrade arm on every repository the migration just fixed — reintroducing, through a hardcoded *key*, exactly the failure the resolved-path rule above closes. An entry whose bare login (a trailing `[bot]` stripped, surrounding whitespace ignored) is `devflow-autopilot` must become `prflow-implementer`. That GitHub App was renamed; `scripts/authorize-actor.sh` compares logins for **equality**, so the old slug authorizes nothing. The failure is silent and lands one run later: the implement and review stall-backstops post their resume comment successfully and go green, then the gate that comment re-enters declines the App as an unknown actor, so the run never resumes.
+- **`allowed_bots`, inside whichever top-level block this config actually has** — `prflow` on a migrated repository, `devflow` on one whose migration was refused above. **Do not hardcode either name.** An entry whose bare login (a trailing `[bot]` stripped, surrounding whitespace ignored) is `devflow-autopilot` must become `prflow-implementer`. That GitHub App was renamed; `scripts/authorize-actor.sh` compares logins for **equality**, so the old slug authorizes nothing.
 
 Apply it with your file-edit tool, and hold to all of these:
 
@@ -345,19 +345,13 @@ Resolve the repo root and probe for the relevant files using only `git rev-parse
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || ROOT=
 # Cannot resolve the repo root → skip the advisory check entirely (never probe "/").
 [ -n "$ROOT" ] || return 0 2>/dev/null || exit 0
-# CLAUDE.md detection is repo-root only (nested package-level, ~/.claude, and the
-# gitignored personal-override CLAUDE.local.md are all deliberately out of scope —
-# the nudge is about committed, team-shared project memory).
+# CLAUDE.md detection is repo-root only (nested, ~/.claude, and CLAUDE.local.md are out of scope).
 [ -f "$ROOT/CLAUDE.md" ] && echo "claude-md: present" || echo "claude-md: absent"
-# AGENTS.md is matched across its common spellings — plural/singular AND any case
-# (`AGENTS.md`/`agents.md`/`AGENT.md`/`agent.md`) — rather than a GNU-only `find -iname`.
-# (Only the case axis is true case-insensitivity, and only on a case-insensitive FS like
-# macOS — a Linux-only casing such as `Agents.md` is not probed; the singular forms are a
-# different spelling, not a casing.) These all denote one logical convention, so report it
-# AT MOST ONCE: a case-insensitive FS makes a file's case-variants all match, and a repo
-# carrying both plural and singular still warrants a single nudge. First match wins.
-# Accumulate the deduped hits into $detected (filenames are space-free) so the
-# CLAUDE.md-present check below reuses this exact list instead of re-globbing.
+# AGENTS.md is matched across its common spellings (`AGENTS.md`/`agents.md`/`AGENT.md`/`agent.md`),
+# rather than a GNU-only `find -iname`. Case-insensitive matching applies only on a
+# case-insensitive FS. These all denote one logical convention, so report it AT MOST ONCE;
+# first match wins. Accumulate the deduped hits into $detected so the CLAUDE.md-present check
+# below reuses this list.
 detected=
 agents_seen=
 for f in "AGENTS.md" "agents.md" "AGENT.md" "agent.md"; do
@@ -372,22 +366,16 @@ done
 The `@`-import paths you cite are **repo-root-relative**, matching how Claude Code resolves `CLAUDE.md` imports — `@AGENTS.md`, `@.github/copilot-instructions.md`, `@GEMINI.md`, `@.cursorrules`. When `CLAUDE.md` is present, check **every** detected agent file the same loop-driven way (don't hand-pick one) — for each existing file, grep `CLAUDE.md` for its `@`-path and treat a miss as an unreferenced file. **Reuse the exact deduped list the detection above emitted** (its `agent-file:` names — capture them into `$detected`), in the **same shell** so `$ROOT` is still set; do **not** re-probe/re-glob here, or the AGENTS.md dedup would be undone and one physical file flagged under several spellings again:
 
 ```bash
-# `$detected` = the deduped `agent-file:` names captured from the detection above (one
-# entry per physical file) — NOT a fresh re-glob.
-# Case-insensitive match (-i): on a case-insensitive FS the casing reported above may
-# differ from how the user actually wrote the @-import in CLAUDE.md (e.g. detected
-# `@AGENTS.md` vs a written `@agents.md`), and a case-sensitive grep would then falsely
-# flag a correctly-wired import as unreferenced. Matching case-insensitively errs toward
-# silence (the safe, advisory direction).
-# Only the CLAUDE.md-present cases (matrix 3/4) consult these imports — gate the loop on
-# CLAUDE.md's existence explicitly, so on the no-CLAUDE.md paths it can never grep a missing
-# target (don't lean on the rc>=2 swallow below as the only thing keeping case 1/2 quiet).
+# `$detected` = the deduped `agent-file:` names captured above — NOT a fresh re-glob.
+# Case-insensitive match (-i): the detected casing (e.g. `@AGENTS.md`) may differ from how the
+# user wrote the @-import in CLAUDE.md (e.g. `@agents.md`), and a case-sensitive grep would
+# falsely flag a correctly-wired import as unreferenced.
+# Gate the loop on CLAUDE.md's existence explicitly, so the no-CLAUDE.md paths never grep a
+# missing target.
 if [ -f "$ROOT/CLAUDE.md" ]; then
   for f in $detected; do
     grep -qiF "@$f" "$ROOT/CLAUDE.md"; rc=$?
-    # rc 0 = referenced; rc 1 = genuinely no match → unreferenced; rc>=2 = grep read error
-    # (vanished/unreadable CLAUDE.md after the test -f) → stay silent, don't misreport it as
-    # unreferenced. Discriminating the codes keeps the step erring toward silence.
+    # rc 0 = referenced; rc 1 = no match → unreferenced; rc>=2 = grep read error → stay silent.
     [ "$rc" -eq 1 ] && echo "unreferenced: @$f"
   done
 fi

@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.33] — 2026-08-07
+
+### Changed
+- **`/prflow:init` prompt trimmed to the instruction-plus-consequence prose rule.** Removed rationale essays, rejected-design records, incident archaeology, maintainer notes, and reviewer-misreading pre-emption from `skills/init/SKILL.md` (body prose and `#` comments in fenced blocks alike), keeping every instruction, prohibition, degraded arm, breadcrumb literal, exact command form, and closed-set enumeration. No behavioral change — the same helpers run in the same order with the same flags. (#1408)
+
 ## [2.31.32] — 2026-08-07
 
 ### Changed
