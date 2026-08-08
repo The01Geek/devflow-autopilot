@@ -10,7 +10,7 @@ Split the checklist into two groups by each item's `verification_mode` field (se
 - **Lite items** (`verification_mode: "lite"`) — the orchestrator runs `grep -n` / `rg` directly. No agent dispatch. See 2.1a.
 - **Agent items** (`verification_mode: "agent"`, or missing/unrecognized) — dispatch the `prflow:checklist-verifier` agent. See 2.1b.
 
-Supersedes the old one-verifier-agent-per-item rule. For pure string-presence claims, an orchestrator-direct `grep -n` is 5–10x cheaper than a verifier subagent for an identical verdict. The lite path is bounded to claims reducing to substring presence/absence — see `checklist-generator.md` for eligibility rules.
+For pure string-presence claims, an orchestrator-direct `grep -n` is cheaper than a verifier subagent for an identical verdict. The lite path is bounded to claims reducing to substring presence/absence — see `checklist-generator.md` for eligibility rules.
 
 **Item-side field-completion re-ask (pre-dispatch).** A generator miss of a load-bearing normalizer field must degrade to a measurement, not a silent stall. At partition, collect any **agent** items missing `claim_provenance` (and any `source_authored` items missing `source_excerpt`) into **one field-completion re-ask** to the `checklist-generator`: pass the offenders back by `claim_signature`, have it return **only the completed fields**, accept **no new items** (mirroring the 2.1a malformed-lite-item promotion). This re-ask runs **exactly once**; items still missing the field stay normalization-ineligible downstream; those whose raw verdict later comes back FAIL are counted in `{field_defect_fail_count}` (item 6's membership — the label counts only FAILs; a PASS/INCONCLUSIVE survivor carries the marker uncounted).
 
@@ -26,7 +26,7 @@ For each item in the **current iteration's** checklist, reuse the prior verdict 
 
 For each reused item, copy `verdict`, `evidence`, `file_checked`, and — when present — `raw_verdict` and `normalized` from the prior result (the `NORMALIZED (wording-only): ` prefix already travels in the copied `evidence`) and tag it `reused_from_iter_<N-1>: true` in the workpad. Everything else — new variance-recovery items, items whose prior verdict was FAIL or INCONCLUSIVE, items whose `source_file` the fix touched — verifies fresh.
 
-**Why narrow.** File-intersection reuse is sound only for *fix-induced defects* — a PASS item whose file the fix didn't touch is unchanged; *variance-recovered defects* (something iter-1 missed) are the whole purpose of re-running Phase 1, which a coarse skip-wholesale gate silently dismisses. Narrow per-item reuse optimizes only the first case.
+**Why narrow.** A coarse skip-wholesale gate silently dismisses *variance-recovered defects* (something iter-1 missed), which are the whole purpose of re-running Phase 1.
 
 Output: `Reused {K} of {N} checklist verdicts from iter-(N-1) (matching claim_signature, prior verdict PASS, source_file untouched by fix commit). Verifying remaining {N-K} fresh.`
 
