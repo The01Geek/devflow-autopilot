@@ -5285,6 +5285,85 @@ assert_eq("#818/AC116 (behavioural): the two new tokens are OBSERVED on their ow
                                   "", "- a", "- b"])]])
 
 
+# ── stale_prose_lint gating R3 plurality + numeral-lookbehind narrowing (issue #1405) ──────
+# The gating _COUNT_RE now requires a PLURAL trigger noun and clears the shared numeral
+# lookbehind (the authoritative rule and its disclosed plural-ordinal residual live in the
+# module-header R3 spec). Each accept-side assertion below was RED against the shipped rule; the
+# still-gates assertions are paired with a matched-count sibling proving the narrowed rule still
+# count-resolves rather than blanket-passing. Fixtures drive examine_file directly (the #1405
+# unit boundary; the process boundary is the #423 sandbox in run.sh).
+def _rows_1405(body_lines):
+    # Reuse the single examine_file driver (`_full_rows_818`) rather than re-implementing the
+    # added-dict + rows boilerplate — one place turns a fixture into rows.
+    return _full_rows_818("docs/x.md", body_lines)
+
+_ASSERT2_1405 = ["assert x", "assert y"]  # two adjacent assertion lines
+
+# The plural derivation `_COUNT_NOUNS.replace("s?", "s")` is a textual transform whose correctness
+# rests on every `_COUNT_NOUNS` alternative ending in a terminal `s?`. Pin that premise so a future
+# noun added without one (an irregular plural, an `(es)?` group) fails LOUDLY here instead of
+# silently leaving the derived gating alternation permitting a singular noun again — the exact
+# false-positive class #1405 closed. Behavioral: reads the imported runtime constants.
+assert_eq("#1405: every _COUNT_NOUNS alternative ends in a terminal 's?' (the plural derivation's premise)",
+          [], [a for a in stale_prose_lint._COUNT_NOUNS.split("|") if not a.endswith("s?")])
+assert_eq("#1405: the derived plural alternation differs from the singular-permitting source and "
+          "carries no residual optional-'s?'",
+          [True, True],
+          [stale_prose_lint._COUNT_NOUNS_PLURAL != stale_prose_lint._COUNT_NOUNS,
+           "s?" not in stale_prose_lint._COUNT_NOUNS_PLURAL])
+
+# AC1 — a singular ordinal reference emits no STALE and exactly one non-gating UNRESOLVABLE R3
+# recognition row whose detail begins `count-locked: recognition-only`.
+_ac1_1405 = _rows_1405(["Step 3 item 6 produced no new fix commit."] + _ASSERT2_1405)
+assert_eq("#1405/AC1: `Step 3 item 6` emits no STALE row",
+          [], [(r.verdict, r.rule) for r in _ac1_1405 if r.verdict == stale_prose_lint.STALE])
+assert_eq("#1405/AC1: `Step 3 item 6` emits exactly one non-gating UNRESOLVABLE R3 row whose "
+          "detail begins `count-locked: recognition-only`",
+          [(stale_prose_lint.UNRESOLVABLE, "R3", True)],
+          [(r.verdict, r.rule, r.detail.startswith("count-locked: recognition-only"))
+           for r in _ac1_1405])
+
+# AC2 — the lookbehind specifically: the noun (`checks`) is plural, so only the glued-`#`
+# numeral stops the match, in BOTH the gating pattern and the recognition tier → no row at all.
+_ac2_1405 = _rows_1405(["see #402 checks for the list."] + _ASSERT2_1405)
+assert_eq("#1405/AC2: `see #402 checks` emits no STALE row (numeral lookbehind; noun is plural)",
+          [], [(r.verdict, r.rule) for r in _ac2_1405 if r.verdict == stale_prose_lint.STALE])
+
+# AC3 — a genuine PLURAL count claim still gates; its matched-count sibling is VERIFIED.
+_ac3_1405 = _rows_1405(["This header locks in 3 assertions below:"] + _ASSERT2_1405)
+assert_eq("#1405/AC3: a real plural count claim (`3 assertions`, block has 2) still gates STALE R3",
+          [(stale_prose_lint.STALE, "R3")], [(r.verdict, r.rule) for r in _ac3_1405])
+_ac3ok_1405 = _rows_1405(["This header locks in 2 assertions below:"] + _ASSERT2_1405)
+assert_eq("#1405/AC3: the same shape with a MATCHING count (`2 assertions`) is VERIFIED, not "
+          "STALE — the narrowed rule still count-resolves, it does not blanket-pass",
+          [(stale_prose_lint.VERIFIED, "R3")], [(r.verdict, r.rule) for r in _ac3ok_1405])
+
+# AC4 — the disclosed plural-ordinal residual: `Step 3 items 1-4` is an ordinal reference but is
+# plural, so it still gates (documented as a known residual, not a regression).
+_ac4_1405 = _rows_1405(["Step 3 items 1-4 are covered."] + _ASSERT2_1405)
+assert_eq("#1405/AC4: the plural-ordinal residual `Step 3 items 1-4` still gates STALE R3",
+          [(stale_prose_lint.STALE, "R3")], [(r.verdict, r.rule) for r in _ac4_1405])
+
+# AC5 — a singular count claim stops gating and falls to the recognition tier, whose detail
+# contains `1 assertion` — reachable ONLY while _COUNT_NOUNS keeps its singular `s?` alternative.
+_ac5_1405 = _rows_1405(["Exactly 1 assertion covers it."] + _ASSERT2_1405)
+assert_eq("#1405/AC5: `1 assertion` emits no STALE row",
+          [], [(r.verdict, r.rule) for r in _ac5_1405 if r.verdict == stale_prose_lint.STALE])
+assert_eq("#1405/AC5: `1 assertion` emits an UNRESOLVABLE R3 recognition row whose detail "
+          "contains `1 assertion` (recognition tier still reads the singular noun)",
+          [(stale_prose_lint.UNRESOLVABLE, "R3", True)],
+          [(r.verdict, r.rule, "1 assertion" in r.detail) for r in _ac5_1405])
+
+# AC6 — the R3-to-R4 fall-through: `1 item` used to match the gating R3 (`item` via `s?`) and its
+# `continue` masked the R4 deny-absolute on the same line. With R3 no longer claiming the
+# singular line, R4 runs and reports the real modality conflict that was fail-open before.
+_ac6_1405 = _rows_1405(["No `>` redirect is permitted for the 1 item above.",
+                        "The `>` redirect is permitted in this file."])
+assert_eq("#1405/AC6: R3 no longer masks R4 — a singular `1 item` line falls through to the R4 "
+          "deny-absolute, which now reports the previously-masked STALE R4",
+          [(stale_prose_lint.STALE, "R4")], [(r.verdict, r.rule) for r in _ac6_1405])
+
+
 # AC124/AC125 — the working-tree post-image mode. `--rev` and `--worktree` are mutually
 # exclusive with exactly one required, and the `--help` text is pinned against the RENDERED
 # output: the two flags' help strings are assembled from adjacent string literals and live on

@@ -38052,6 +38052,68 @@ else
     "$( ( cd "$LIB/.." && git diff origin/main...HEAD | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? ) )"
 fi
 
+# ── #1405 gating R3 plurality + numeral-lookbehind narrowing (process boundary) ───────
+# These fixtures drive the REAL self-scan process boundary (git diff | stale-prose-lint.py --rev
+# HEAD), the complement of the examine_file unit assertions in test_python_scripts.py; the
+# authoritative rule statement is the module-header R3 spec. Each accept-side fixture below
+# exited 1 with a gating STALE R3 before this change; the still-gates fixtures pin a genuine
+# plural count mismatch plus its matched-count VERIFIED sibling. AC7 replays the two lines that
+# gated under the pre-#1405 rule. (No count-shaped phrase appears in these comment lines: a
+# comment IS prose the lint examines, so the shapes live only in the code-line printf fixtures.)
+SPF="$(probe_tmp '#1405 ac1 singular ordinal')"
+printf '%s\n' 'Step 3 item 6 produced no new fix commit.' 'assert a' 'assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#1405 AC1 singular ordinal reference exits 0 (no longer gates)" "0" "$(spl_rc "$SPR")"
+assert_eq "#1405 AC1 emits NO STALE R3 row" "no" "$(spl_has "$SPR" STALE R3)"
+assert_eq "#1405 AC1 emits a non-gating UNRESOLVABLE R3 recognition row" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+SPF="$(probe_tmp '#1405 ac2 hash-glued reference')"
+printf '%s\n' 'see #402 checks for the list.' 'assert a' 'assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#1405 AC2 hash-glued numeral reference exits 0 (numeral lookbehind; noun is plural)" "0" "$(spl_rc "$SPR")"
+assert_eq "#1405 AC2 emits NO STALE R3 row" "no" "$(spl_has "$SPR" STALE R3)"
+
+SPF="$(probe_tmp '#1405 ac3 plural count still gates')"
+printf '%s\n' 'This header locks in 3 assertions below:' 'assert a' 'assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#1405 AC3 real plural count mismatch still exits 1" "1" "$(spl_rc "$SPR")"
+assert_eq "#1405 AC3 still emits a STALE R3 row" "yes" "$(spl_has "$SPR" STALE R3)"
+printf '%s\n' 'This header locks in 2 assertions below:' 'assert a' 'assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#1405 AC3 matched-count plural sibling emits a VERIFIED R3 row (still count-resolves)" "yes" "$(spl_has "$SPR" VERIFIED R3)"
+
+SPF="$(probe_tmp '#1405 ac4 plural ordinal residual')"
+printf '%s\n' 'Step 3 items 1-4 are covered.' 'assert a' 'assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#1405 AC4 plural-ordinal residual still exits 1" "1" "$(spl_rc "$SPR")"
+assert_eq "#1405 AC4 still emits a STALE R3 row (disclosed residual)" "yes" "$(spl_has "$SPR" STALE R3)"
+
+SPF="$(probe_tmp '#1405 ac5 singular count recognition')"
+printf '%s\n' 'Exactly 1 assertion covers it.' 'assert a' 'assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#1405 AC5 singular count claim exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#1405 AC5 emits NO STALE R3 row" "no" "$(spl_has "$SPR" STALE R3)"
+assert_eq "#1405 AC5 emits a non-gating UNRESOLVABLE R3 recognition row" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+SPF="$(probe_tmp '#1405 ac6 r4 fallthrough')"
+printf '%s\n' 'No `>` redirect is permitted for the 1 item above.' 'The `>` redirect is permitted in this file.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#1405 AC6 R3 no longer masks R4 (exits 1)" "1" "$(spl_rc "$SPR")"
+assert_eq "#1405 AC6 emits a STALE R4 row (previously masked by the gating R3 match)" "yes" "$(spl_has "$SPR" STALE R4)"
+
+# AC7 — the two lines that gated under the pre-#1405 rule, replayed through the self-scan
+# boundary: a diff adding them now exits 0. Each block size mismatches the claimed count, so both
+# gated (exit 1) before this change.
+SPF="$(probe_tmp '#1405 ac7 both live-gating lines')"
+printf '%s\n' \
+  'Step 3 item 6 produced no new fix commit.' \
+  'assert one' \
+  'For each merge group with >1 item, pick ONE representative item to keep.' \
+  'assert two' 'assert three' 'assert four' 'assert five' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#1405 AC7 the two currently-gating lines no longer gate (self-scan exits 0)" "0" "$(spl_rc "$SPR")"
+assert_eq "#1405 AC7 emits NO STALE R3 row for either line" "no" "$(spl_has "$SPR" STALE R3)"
+
 # ── #439 R3 recognition-only tier: widened claim recognition, NON-GATING ──────────────
 # The tier surfaces the `count-locked` policy trigger on a widened claim shape (spelled-out
 # numerals, new plural-only nouns, up to two intervening modifiers) that the gating _COUNT_RE
