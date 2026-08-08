@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1429",
+  "generated_at": "2026-08-08T02:52:51Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.37",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.3607455,
+    "tokens": {
+      "input_tokens": 32,
+      "output_tokens": 10624,
+      "cache_read_input_tokens": 1832591,
+      "cache_creation_input_tokens": 117869,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 32,
+        "outputTokens": 10624,
+        "cacheReadInputTokens": 1832591,
+        "cacheCreationInputTokens": 117869,
+        "webSearchRequests": 0,
+        "costUSD": 2.3607455,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 19,
+    "duration_ms": 172328
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "for f in skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/loop-exit.md; do\n  printf '%s  ' \"$(python3 -c \"import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())\" \"$f\")\"; echo \"$f\"\ndone\necho \"--- manifest entries ---\"\njq -r '.assets // . | to_entries[] | select(.key|test(\"error-handling|loop-control|loop-exit\")) | \"\\(.value)  \\(.key)\"' scripts/devflow-cloud-writer-contract.json 2>/dev/ …[per-command-truncated]",
+      "git fetch origin e0979404889a73450b4c56836603f45abac5d3aa 2>&1 | tail -1\necho \"=== sha256 of PR-head blobs ===\"\nfor f in error-handling loop-control loop-exit; do\n  p=\"skills/review-and-fix/references/$f.md\"\n  h=$(git show \"e0979404889a73450b4c56836603f45abac5d3aa:$p\" | python3 -c \"import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())\")\n  echo \"$h  $p\"\ndone\necho \"=== manifest entries at PR head ===\"\ngit show \"e0979404889a73450b4c56836603f45abac5d3aa:scripts/devflow-cloud- …[per-command-truncated]",
+      "for p in skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/loop-exit.md skills/review-and-fix/references/convergence.md skills/review-and-fix/references/fixing.md skills/review-and-fix/references/shadow-review.md skills/review-and-fix/SKILL.md; do\n  git show \"e0979404889a73450b4c56836603f45abac5d3aa:$p\" 2>/dev/null | grep -niE \"rationale block below|rationale block in Step 0.9|Why path-based loading|Why this step  …[per-command-truncated]"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
