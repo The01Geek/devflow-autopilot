@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1448",
+  "generated_at": "2026-08-08T08:37:47Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.44",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.6092515,
+    "tokens": {
+      "input_tokens": 31,
+      "output_tokens": 15538,
+      "cache_read_input_tokens": 1836113,
+      "cache_creation_input_tokens": 130259,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 31,
+        "outputTokens": 15538,
+        "cacheReadInputTokens": 1836113,
+        "cacheCreationInputTokens": 130259,
+        "webSearchRequests": 0,
+        "costUSD": 2.6092515,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 259440
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git rev-parse --show-toplevel; echo \"---CLAUDE_SKILL_DIR---\"; echo \"${CLAUDE_SKILL_DIR:-EMPTY}\"",
+      "git fetch origin main --quiet 2>&1; git merge-base origin/main c1f4dd02a250d36aaf1984f9d9f5b258027bacda; echo \"---STAT---\"; git diff --stat $(git merge-base origin/main c1f4dd02a250d36aaf1984f9d9f5b258027bacda) c1f4dd02a250d36aaf1984f9d9f5b258027bacda",
+      "for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/fix-delta-gate.md skills/review-and-fix/references/pre-fix-gates.md; do echo \"== $f ==\"; grep -nE \"CLAUDE\\.md|run \\`?[0-9]{8,}|/prflow/prflow|docs/internal|docs/external\" \"$f\" || echo \"(no non-shipping citations)\"; done",
+      "for p in skills/review-and-fix/SKILL.md skills/review-and-fix/references/fix-delta-gate.md skills/review-and-fix/references/pre-fix-gates.md; do git show \"c1f4dd02:$p\" | python3 -c \"import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())\" | tr -d '\\n'; echo \"  $p\"; done"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
