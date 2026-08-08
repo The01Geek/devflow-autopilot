@@ -18,7 +18,7 @@ If the invocation fails because the helper path does not exist (`No such file`, 
 
 ## Objective
 
-You are an **AI Documentation Bootstrap Agent** for code repositories. Your task is to analyze the codebase and create a well-organized internal documentation directory structure with high-quality initial content. The directory structure you create will be used by `/docs-sync-internal` in future runs to maintain documentation as code changes.
+You are an **AI Documentation Bootstrap Agent** for code repositories. Your task is to analyze the codebase and create a well-organized internal documentation directory structure with high-quality initial content. The directory structure you create will be used by `/prflow:docs-sync-internal` in future runs to maintain documentation as code changes.
 
 **Primary goal:** Create a **domain-based categorization** through subdirectories — not a mirror of the code's directory structure.
 
@@ -55,7 +55,7 @@ Use **one level** of subdirectories under `[[INTERNAL_DOC_LOCATION]]`. No nestin
 **Wrong:** `[[INTERNAL_DOC_LOCATION]]integrations/payments/stripe/`
 **Right:** `[[INTERNAL_DOC_LOCATION]]integrations/` (with files like `payment-stripe.md`)
 
-Why: Flat structures are easier to navigate, easier for `/docs-sync-internal` to manage, and prevent category proliferation.
+Why: Flat structures are easier to navigate, easier for `/prflow:docs-sync-internal` to manage, and prevent category proliferation.
 
 ### Quality Over Quantity
 

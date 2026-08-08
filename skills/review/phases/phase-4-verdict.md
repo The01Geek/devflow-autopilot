@@ -237,7 +237,7 @@ When enabled, assemble a **single workpad-shaped object** for this run from stat
 Then render the trace and (on a writable run) persist the record, reusing the **same hardened invocation** `/prflow:review-and-fix`'s Loop Exit uses (direct invocation — no `bash` prefix; rc/stderr `::warning::` breadcrumbs; remove-on-rc≠0):
 
 ```bash
-WORKPAD_DIR=$(printf '%s' ".prflow/tmp/review/<slug>/<run-id>")   # run-scoped: read THIS run's iter-1.json. Capture form: a bare VAR="…" assignment is a probe-denied shape (.github/workflows/matcher-probe.yml); the matcher descends into $(…).
+WORKPAD_DIR=$(printf '%s' ".prflow/tmp/review/<slug>/<run-id>")   # run-scoped: read THIS run's iter-1.json. Capture form: a bare VAR="…" assignment is a denied shape; the matcher descends into $(…).
 # Trace (renders to chat / the live comment; reads only):
 # Three-way, mirroring /prflow:review-and-fix's Loop Exit. `if !` reads the helper's OWN
 # exit status — never a captured rc read in a later statement (a cross-statement-variable-
